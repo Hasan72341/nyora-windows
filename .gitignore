@@ -1,0 +1,8 @@
+build/
+.gradle/
+.idea/
+*.iml
+local.properties
+.DS_Store
+.kotlin/
+.env.sync
