@@ -12,7 +12,9 @@ dependencies {
 
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
-    implementation(compose.materialIconsExtended)
+    // material-icons-extended was deprecated + frozen at 1.7.3 (no 1.8.x); pin it
+    // explicitly — the icon vectors are compatible with the 1.8.2 runtime.
+    implementation("org.jetbrains.compose.material:material-icons-extended:1.7.3")
     implementation(compose.components.resources)
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
@@ -96,8 +98,9 @@ compose.desktop {
 configurations.all {
     resolutionStrategy {
         eachDependency {
-            if (requested.group.startsWith("org.jetbrains.compose")) {
-                useVersion("1.7.3")
+            if (requested.group.startsWith("org.jetbrains.compose") &&
+                !requested.name.startsWith("material-icons")) {
+                useVersion("1.8.2")
             }
         }
     }
