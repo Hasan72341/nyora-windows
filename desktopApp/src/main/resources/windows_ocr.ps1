@@ -50,17 +50,26 @@ try {
 
     $engine = $null
     if ($Lang -and $Lang.Trim().Length -gt 0) {
+        # A specific source language was requested. Only that recognizer reads the
+        # script correctly, so if its OCR pack isn't installed we must NOT silently
+        # fall back to the user's profile language — running the English engine on
+        # Japanese yields garbage. Report no-language-pack so the UI prompts the user
+        # to install the pack (Settings > Time & language > Language > optional OCR).
         $language = New-Object Windows.Globalization.Language($Lang)
         if ([Windows.Media.Ocr.OcrEngine]::IsLanguageSupported($language)) {
             $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($language)
         }
-    }
-    if ($null -eq $engine) {
+        if ($null -eq $engine) {
+            Write-Output ('{"available":false,"reason":"no-language-pack","lang":"' + $Lang + '","width":0,"height":0,"lines":[]}')
+            return
+        }
+    } else {
+        # No specific language — fall back to whatever the user's profile provides.
         $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-    }
-    if ($null -eq $engine) {
-        Write-Output '{"available":false,"reason":"no-language-pack","width":0,"height":0,"lines":[]}'
-        return
+        if ($null -eq $engine) {
+            Write-Output '{"available":false,"reason":"no-language-pack","width":0,"height":0,"lines":[]}'
+            return
+        }
     }
 
     $result = Await ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
