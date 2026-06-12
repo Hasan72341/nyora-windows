@@ -31,6 +31,18 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 
 fun main() {
+    // GraalVM 24.x ships no Truffle native attach library for Windows ARM64, so the
+    // optimizing runtime fails to initialise (NoSuchFileException for
+    // META-INF/.../libtruffleattach/windows/aarch64) and every JS parser dies with an
+    // uncaught InternalError — browsing a source just hangs. Force the interpreter-only
+    // Truffle runtime there; it needs no native library. (x64 keeps its JIT.) This MUST
+    // run before any GraalVM/Truffle class is loaded.
+    val osName = System.getProperty("os.name").orEmpty().lowercase()
+    val osArch = System.getProperty("os.arch").orEmpty().lowercase()
+    if (osName.contains("win") && (osArch.contains("aarch64") || osArch.contains("arm"))) {
+        System.setProperty("truffle.TruffleRuntime", "com.oracle.truffle.api.impl.DefaultTruffleRuntime")
+    }
+
     // Bootstrap the shared logic: DB, migrations, source seeding, Supabase sync, and
     // network config. Crucially this wires repository.supabaseSync (without it cloud
     // sign-in fails with "Supabase sync unavailable"). Matches the mac helper, the
