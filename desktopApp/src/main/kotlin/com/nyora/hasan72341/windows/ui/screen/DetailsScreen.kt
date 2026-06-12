@@ -163,7 +163,9 @@ fun DetailsScreen(state: AppState) {
                                 modifier = Modifier.weight(1f).padding(top = 4.dp),
                                 verticalArrangement = Arrangement.spacedBy(14.dp),
                             ) {
-                                SystemTag(text = manga.source.name)
+                                // Show the source's friendly display name, never the raw
+                                // "JS_<ID>" script ref the manga carries.
+                                SystemTag(text = state.sourceFor(manga)?.name ?: manga.source.name.removePrefix("JS_"))
                                 Text(
                                     text = manga.title,
                                     style = MaterialTheme.typography.displaySmall,
