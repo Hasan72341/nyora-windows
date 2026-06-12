@@ -14,33 +14,32 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
 import com.nyora.windows.ui.App
-import com.nyora.hasan72341.shared.NyoraFacade
+import com.nyora.hasan72341.shared.HelperMain
 import com.nyora.hasan72341.shared.data.ExtensionInstaller
 import com.nyora.hasan72341.shared.data.SourceCatalogClient
-import com.nyora.hasan72341.shared.extension.JvmExtensionRuntime
 import com.nyora.hasan72341.shared.proxy.NyoraRestServer
 import com.nyora.hasan72341.shared.reader.PageImageLoader
-import com.nyora.hasan72341.shared.repository.JsonToSqlMigration
-import com.nyora.hasan72341.shared.repository.SqlDelightLibraryRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
 fun main() {
-    val repository = SqlDelightLibraryRepository()
-    JsonToSqlMigration.runIfNeeded(repository)
-
-    val facade = NyoraFacade(
-        repository = repository,
-        runtime = JvmExtensionRuntime(),
-    )
+    // Bootstrap the shared logic: DB, migrations, source seeding, Supabase sync, and
+    // network config. Crucially this wires repository.supabaseSync (without it cloud
+    // sign-in fails with "Supabase sync unavailable"). Matches the mac helper, the
+    // linux desktop app, and the deployable web server — one bootstrap everywhere.
+    val boot = HelperMain.bootstrap()
+    val facade = boot.facade
+    val networkConfig = boot.networkConfig
 
     // Start the REST server in-process. The image proxy endpoint requires it,
     // and keeping the same HTTP surface means future CLI / remote clients work too.
     val server = NyoraRestServer(
         facade = facade,
-        catalog = SourceCatalogClient(),
-        installer = ExtensionInstaller(),
-        pageLoader = PageImageLoader(),
+        catalog = SourceCatalogClient(networkConfig = networkConfig),
+        installer = ExtensionInstaller(networkConfig = networkConfig),
+        pageLoader = PageImageLoader(networkConfig = networkConfig),
+        downloads = boot.downloads,
+        networkConfig = networkConfig,
     )
     val baseUrl = server.start()
 
