@@ -1,9 +1,9 @@
 name: Release Windows
 
-# Builds the Nyora Compose Desktop app and packages a Windows MSI (bundled JRE,
-# no Java install needed) for x64 and ARM64, then publishes them to a GitHub
-# Release. 32-bit x86 is not supported — Compose Desktop / Skiko ship no 32-bit
-# Windows runtime and JDK 17 dropped 32-bit Windows.
+# Builds the Nyora Compose Desktop app and packages a Windows .exe installer
+# (bundled JRE, no Java install needed) for x64 and ARM64, then publishes them
+# to a GitHub Release. 32-bit x86 is not supported — Compose Desktop / Skiko
+# ship no 32-bit Windows runtime and JDK 17 dropped 32-bit Windows.
 #
 # The :shared module compiles the Kotatsu engine from the nyora-shared submodule,
 # so the checkout must be recursive.
@@ -36,28 +36,29 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # jpackage needs WiX Toolset v3 on PATH to build the MSI (WiX 4+ is NOT
-      # compatible with jpackage). The Windows runners ship Chocolatey.
+      # jpackage builds the .exe installer with the bundled WiX-free path, but
+      # Compose's exe packaging still shells out to WiX v3 for the installer DB.
+      # The Windows runners ship Chocolatey.
       - name: Install WiX Toolset v3
         shell: pwsh
         run: choco install wixtoolset --version=3.11.2 -y --no-progress
 
-      - name: Package MSI
+      - name: Package EXE installer
         shell: pwsh
-        run: .\gradlew.bat --no-daemon :desktopApp:packageReleaseMsi
+        run: .\gradlew.bat --no-daemon :desktopApp:packageReleaseExe
 
-      - name: Stage MSI (arch-named)
+      - name: Stage EXE (arch-named)
         shell: pwsh
         run: |
-          $msi = Get-ChildItem desktopApp/build/compose/binaries/main-release/msi/*.msi | Select-Object -First 1
-          if (-not $msi) { throw "No MSI produced" }
-          Copy-Item $msi.FullName "Nyora-Windows-${{ matrix.arch }}.msi"
-          Get-Item "Nyora-Windows-${{ matrix.arch }}.msi" | Format-List Name, Length
+          $exe = Get-ChildItem desktopApp/build/compose/binaries/main-release/exe/*.exe | Select-Object -First 1
+          if (-not $exe) { throw "No EXE produced" }
+          Copy-Item $exe.FullName "Nyora-Windows-${{ matrix.arch }}.exe"
+          Get-Item "Nyora-Windows-${{ matrix.arch }}.exe" | Format-List Name, Length
 
       - uses: actions/upload-artifact@v4
         with:
           name: nyora-windows-${{ matrix.arch }}
-          path: Nyora-Windows-${{ matrix.arch }}.msi
+          path: Nyora-Windows-${{ matrix.arch }}.exe
           if-no-files-found: error
 
   release:
@@ -78,12 +79,12 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: Nyora for Windows ${{ github.ref_name }}
-          files: dist/*.msi
+          files: dist/*.exe
           fail_on_unmatched_files: false
           body: |
             **Nyora for Windows ${{ github.ref_name }}** — Compose Desktop with a bundled Java runtime (no separate install needed).
 
-            - `Nyora-Windows-x64.msi` — Intel / AMD 64-bit
-            - `Nyora-Windows-arm64.msi` — ARM64 (Snapdragon, etc.)
+            - `Nyora-Windows-x64.exe` — Intel / AMD 64-bit
+            - `Nyora-Windows-arm64.exe` — ARM64 (Snapdragon, etc.)
 
             32-bit x86 isn't supported — Compose Desktop / JDK 17 are 64-bit only.
