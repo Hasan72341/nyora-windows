@@ -1,5 +1,6 @@
 package com.nyora.windows.ui.screen
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,9 +17,11 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.SyncAlt
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.Update
@@ -37,11 +40,11 @@ import com.nyora.windows.AppState
 import com.nyora.windows.ai.AiMode
 import com.nyora.windows.NavDest
 import com.nyora.windows.ReaderMode
+import com.nyora.windows.ui.GoogleLogo
 import com.nyora.windows.ui.theme.Accent
 import com.nyora.windows.ui.theme.AppearanceMode
 import com.nyora.windows.ui.theme.LocalNyoraAccent
 import com.nyora.windows.ui.theme.NyoraTokens
-import com.nyora.windows.ui.theme.SectionHeader
 import com.nyora.windows.ui.theme.SystemTag
 import com.nyora.windows.ui.theme.accentGradientSubtle
 import com.nyora.windows.ui.theme.glassCard
@@ -94,407 +97,462 @@ private val AI_MODE_OPTIONS = listOf(
     AiMode.BYOK    to "Custom key (OpenAI-compatible)",
 )
 
-/**
- * "Midnight Sakura" Settings — full mac-parity.
- *
- * A flat-surface settings screen. Most of the time it renders the scrolling settings
- * list; tapping a navigation row swaps the whole surface for a full-screen sub-panel
- * (Network / Backup / AniList) which calls back to dismiss. Statistics is a top-level
- * nav destination rather than a panel, so it routes through [AppState.destination].
- */
+// ── Categories ──────────────────────────────────────────────────────────────────────
+//
+// Mac-parity settings: a left category sidebar + a detail pane that swaps per category
+// (NSSplitView-style), replacing the old single long scroll. Network / Backup / Tracker
+// open as full drill-in panels (keeping their own back button), and Downloads /
+// Statistics route to their top-level screens.
+
+private enum class SettingsCategory(val label: String, val icon: ImageVector) {
+    APPEARANCE("Appearance", Icons.Rounded.Palette),
+    READER("Reader", Icons.Rounded.AutoStories),
+    LIBRARY("Library & History", Icons.Rounded.History),
+    TRANSLATION("Translation", Icons.Rounded.Translate),
+    NETWORK("Network", Icons.Rounded.Cloud),
+    DOWNLOADS("Downloads", Icons.Rounded.Download),
+    TRACKER("Tracker", Icons.Rounded.SyncAlt),
+    SYNC("Cloud Sync", Icons.Rounded.Sync),
+    BACKUP("Backup & Restore", Icons.Rounded.Storage),
+    PARSERS("Parser Updates", Icons.Rounded.Update),
+    PRIVACY("Privacy", Icons.Rounded.Lock),
+    STATS("Statistics", Icons.Rounded.BarChart),
+    ABOUT("About", Icons.Rounded.Info),
+}
+
 @Composable
 fun SettingsScreen(state: AppState) {
-    // Which full-screen sub-panel (if any) is currently overlaid on the settings list.
+    var category by remember { mutableStateOf(SettingsCategory.APPEARANCE) }
+    // Full-screen drill-in panels (Network / Backup / Tracker) overlay the whole
+    // sidebar+detail; their own back button clears this back to null.
     var panel by remember { mutableStateOf<String?>(null) }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().background(NyoraTokens.bg)) {
         when (panel) {
             "network" -> NetworkSettingsScreen(state) { panel = null }
             "backup"  -> BackupScreen(state) { panel = null }
             "tracker" -> TrackerScreen(state) { panel = null }
-            else      -> SettingsList(state) { panel = it }
+            else -> Row(modifier = Modifier.fillMaxSize()) {
+                SettingsSidebar(selected = category) { cat ->
+                    when (cat) {
+                        SettingsCategory.NETWORK   -> panel = "network"
+                        SettingsCategory.BACKUP    -> panel = "backup"
+                        SettingsCategory.TRACKER   -> panel = "tracker"
+                        SettingsCategory.DOWNLOADS -> { state.destination = NavDest.DOWNLOADS; state.loadDownloads() }
+                        SettingsCategory.STATS     -> { state.destination = NavDest.STATS; state.loadStats() }
+                        else -> category = cat
+                    }
+                }
+                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                    CategoryDetail(state, category)
+                }
+            }
         }
     }
 }
 
-// ── Settings list ───────────────────────────────────────────────────────────────────
+// ── Category sidebar ──────────────────────────────────────────────────────────────────
 
 @Composable
-private fun SettingsList(state: AppState, openPanel: (String) -> Unit) {
+private fun SettingsSidebar(selected: SettingsCategory, onSelect: (SettingsCategory) -> Unit) {
+    Column(
+        modifier = Modifier
+            .width(240.dp)
+            .fillMaxHeight()
+            .background(NyoraTokens.surface1)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 22.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+            SystemTag(text = "Preferences")
+            Spacer(Modifier.height(3.dp))
+            Text(
+                "Settings",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = (-0.5).sp,
+                color = NyoraTokens.onSurfaceHigh,
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        SettingsCategory.entries.forEach { cat ->
+            SidebarItem(cat = cat, isSelected = cat == selected, onClick = { onSelect(cat) })
+        }
+    }
+}
+
+@Composable
+private fun SidebarItem(cat: SettingsCategory, isSelected: Boolean, onClick: () -> Unit) {
+    val accent = LocalNyoraAccent.current.color
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .then(if (isSelected) Modifier.background(accent.copy(alpha = 0.14f)) else Modifier)
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            cat.icon,
+            contentDescription = null,
+            tint = if (isSelected) accent else NyoraTokens.onSurfaceMuted,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            cat.label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (isSelected) NyoraTokens.onSurfaceHigh else NyoraTokens.onSurfaceMuted,
+        )
+    }
+}
+
+/** Scrolling detail container — one category's worth of [SettingsSection]s. */
+@Composable
+private fun CategoryScroll(content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(32.dp),
-    ) {
-        SectionHeader(title = "Settings", subtitle = "Tune Nyora")
+            .padding(horizontal = 28.dp, vertical = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(28.dp),
+        content = content,
+    )
+}
 
-        // (1) APPEARANCE ──────────────────────────────────────────────────────────────────
-        SettingsSection(eyebrow = "Look & Feel", title = "Appearance", icon = Icons.Rounded.Palette) {
-            // Theme — Amoled / Light segmented control with accentGradientSubtle on selected
-            SettingsRow("Theme") {
-                AppearanceSegmented(
-                    selected  = state.appearance,
-                    onSelect  = { state.setAppearance(it) },
-                )
-            }
-            HairlineDivider()
-            // Accent swatches
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp)) {
-                Text(
-                    "Accent",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = NyoraTokens.onSurfaceHigh,
-                )
-                Spacer(Modifier.height(14.dp))
-                AccentSwatchRow(
-                    selected = state.accent,
-                    onSelect = { state.setAccent(it) },
-                )
-            }
+@Composable
+private fun CategoryDetail(state: AppState, category: SettingsCategory) {
+    when (category) {
+        SettingsCategory.APPEARANCE  -> AppearanceCategory(state)
+        SettingsCategory.READER      -> ReaderCategory(state)
+        SettingsCategory.LIBRARY     -> LibraryCategory(state)
+        SettingsCategory.TRANSLATION -> TranslationCategory(state)
+        SettingsCategory.SYNC        -> CategoryScroll { CloudSyncSection(state) }
+        SettingsCategory.PARSERS     -> CategoryScroll { ParserUpdatesSection(state) }
+        SettingsCategory.PRIVACY     -> PrivacyCategory(state)
+        SettingsCategory.ABOUT       -> AboutCategory(state)
+        // NETWORK / DOWNLOADS / TRACKER / BACKUP / STATS route via the sidebar's onSelect.
+        else -> AppearanceCategory(state)
+    }
+}
+
+// ── Category panels ───────────────────────────────────────────────────────────────────
+
+@Composable
+private fun AppearanceCategory(state: AppState) = CategoryScroll {
+    SettingsSection(eyebrow = "Look & Feel", title = "Appearance", icon = Icons.Rounded.Palette) {
+        // Theme — Amoled / Light segmented control with accentGradientSubtle on selected
+        SettingsRow("Theme") {
+            AppearanceSegmented(
+                selected  = state.appearance,
+                onSelect  = { state.setAppearance(it) },
+            )
         }
+        HairlineDivider()
+        // Accent swatches
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp)) {
+            Text(
+                "Accent",
+                style = MaterialTheme.typography.bodyLarge,
+                color = NyoraTokens.onSurfaceHigh,
+            )
+            Spacer(Modifier.height(14.dp))
+            AccentSwatchRow(
+                selected = state.accent,
+                onSelect = { state.setAccent(it) },
+            )
+        }
+    }
+}
 
-        // (2) READER ──────────────────────────────────────────────────────────────────────
-        SettingsSection(eyebrow = "Reading", title = "Reader", icon = Icons.Rounded.AutoStories) {
-            // Default reader mode dropdown
-            SettingsRow("Default Reader Mode") {
-                NyoraDropdown(
-                    selected = state.defaultReaderMode,
-                    options  = READER_MODE_OPTIONS,
-                    onSelect = {
-                        state.defaultReaderMode = it
-                        state.persistSettings()
-                    },
-                )
-            }
-            HairlineDivider()
-            // Auto-detect reader mode
-            SettingsToggle("Auto-Detect Reader Mode", state.autoDetectReaderMode) {
-                state.autoDetectReaderMode = it
-                state.persistSettings()
-            }
-            HairlineDivider()
-            // Reader background segmented
-            SettingsRow("Reader Background") {
-                ThreeSegmented(
-                    options  = listOf("auto" to "Auto", "dark" to "Dark", "light" to "Light"),
-                    selected = state.readerBackground,
-                    onSelect = { state.setReaderBackground(it) },
-                )
-            }
-            HairlineDivider()
-            // Show zoom buttons
-            SettingsToggle("Show Zoom Buttons", state.showZoomButtons) {
-                state.showZoomButtons = it
-                state.persistSettings()
-            }
-            HairlineDivider()
-            // Two-page in landscape
-            SettingsToggle("Two Pages in Landscape", state.twoPageLandscape) {
-                state.twoPageLandscape = it
-                state.persistSettings()
-            }
-            HairlineDivider()
-            // Auto-hide controls
-            SettingsToggle("Auto-Hide Controls", state.autoHideControls) {
-                state.autoHideControls = it
-                state.persistSettings()
-            }
-            HairlineDivider()
-            // Keep screen on
-            SettingsToggle("Keep Screen On", state.keepScreenOn) {
-                state.keepScreenOn = it
-                state.persistSettings()
-            }
-            HairlineDivider()
-            // Prefetch next pages (existing)
-            SettingsToggle("Prefetch Next Pages", state.prefetchEnabled) { state.prefetchEnabled = it }
-            HairlineDivider()
-            // Show page numbers (existing)
-            SettingsToggle("Show Page Numbers", state.showPageNumbers) { state.showPageNumbers = it }
-            HairlineDivider()
-            // Description collapse
-            SettingsToggle("Collapse Description by Default", state.descriptionCollapse) {
-                state.descriptionCollapse = it
-                state.persistSettings()
-            }
-            HairlineDivider()
-            // Grid size slider 120-220
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "Cover Grid Size",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = NyoraTokens.onSurfaceHigh,
-                    )
-                    Text(
-                        "${state.gridSize} dp",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = LocalNyoraAccent.current.color,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                Slider(
-                    value       = state.gridSize.toFloat(),
-                    onValueChange = { state.gridSize = it.toInt() },
-                    onValueChangeFinished = { state.persistSettings() },
-                    valueRange  = 120f..220f,
-                    steps       = 9, // 10 dp increments → 10 steps
-                    colors      = SliderDefaults.colors(
-                        thumbColor          = LocalNyoraAccent.current.color,
-                        activeTrackColor    = LocalNyoraAccent.current.color,
-                        inactiveTrackColor  = NyoraTokens.surface2,
-                    ),
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text("120", style = MaterialTheme.typography.labelSmall, color = NyoraTokens.onSurfaceFaint)
-                    Text("220", style = MaterialTheme.typography.labelSmall, color = NyoraTokens.onSurfaceFaint)
-                }
-            }
-            HairlineDivider()
+@Composable
+private fun ReaderCategory(state: AppState) = CategoryScroll {
+    SettingsSection(eyebrow = "Reading", title = "Reader", icon = Icons.Rounded.AutoStories) {
+        SettingsRow("Default Reader Mode") {
+            NyoraDropdown(
+                selected = state.defaultReaderMode,
+                options  = READER_MODE_OPTIONS,
+                onSelect = {
+                    state.defaultReaderMode = it
+                    state.persistSettings()
+                },
+            )
+        }
+        HairlineDivider()
+        SettingsToggle("Auto-Detect Reader Mode", state.autoDetectReaderMode) {
+            state.autoDetectReaderMode = it
+            state.persistSettings()
+        }
+        HairlineDivider()
+        SettingsRow("Reader Background") {
+            ThreeSegmented(
+                options  = listOf("auto" to "Auto", "dark" to "Dark", "light" to "Light"),
+                selected = state.readerBackground,
+                onSelect = { state.setReaderBackground(it) },
+            )
+        }
+        HairlineDivider()
+        SettingsToggle("Show Zoom Buttons", state.showZoomButtons) {
+            state.showZoomButtons = it
+            state.persistSettings()
+        }
+        HairlineDivider()
+        SettingsToggle("Two Pages in Landscape", state.twoPageLandscape) {
+            state.twoPageLandscape = it
+            state.persistSettings()
+        }
+        HairlineDivider()
+        SettingsToggle("Auto-Hide Controls", state.autoHideControls) {
+            state.autoHideControls = it
+            state.persistSettings()
+        }
+        HairlineDivider()
+        SettingsToggle("Keep Screen On", state.keepScreenOn) {
+            state.keepScreenOn = it
+            state.persistSettings()
+        }
+        HairlineDivider()
+        SettingsToggle("Prefetch Next Pages", state.prefetchEnabled) { state.prefetchEnabled = it }
+        HairlineDivider()
+        SettingsToggle("Show Page Numbers", state.showPageNumbers) { state.showPageNumbers = it }
+        HairlineDivider()
+        SettingsToggle("Collapse Description by Default", state.descriptionCollapse) {
+            state.descriptionCollapse = it
+            state.persistSettings()
+        }
+        HairlineDivider()
+        // Grid size slider 120-220
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp)) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "Color correction lives in the reader — open any chapter and tap the palette.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NyoraTokens.onSurfaceMuted,
+                    "Cover Grid Size",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = NyoraTokens.onSurfaceHigh,
+                )
+                Text(
+                    "${state.gridSize} dp",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = LocalNyoraAccent.current.color,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
-        }
-
-        // (3) LIBRARY & HISTORY ───────────────────────────────────────────────────────────
-        SettingsSection(eyebrow = "Library", title = "Library & History", icon = Icons.Rounded.History) {
-            // Hide NSFW content (existing)
-            SettingsToggle("Hide NSFW Content", state.nsfwFilter) { state.nsfwFilter = it }
-            HairlineDivider()
-            // Hide NSFW sources (new)
-            SettingsToggle("Hide NSFW Sources", state.hideNsfwSources) {
-                state.hideNsfwSources = it
-                state.persistSettings()
-            }
-            HairlineDivider()
-            // History retention slider 0-365 step 30
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "History Retention",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = NyoraTokens.onSurfaceHigh,
-                    )
-                    Text(
-                        if (state.historyRetentionDays == 0) "Forever"
-                        else "${state.historyRetentionDays} days",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = LocalNyoraAccent.current.color,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                // steps value: 0, 30, 60 … 360 → 13 stops, steps param = 11 (between first & last)
-                Slider(
-                    value       = state.historyRetentionDays.toFloat(),
-                    onValueChange = {
-                        // Snap to nearest 30-day multiple (0 = Forever)
-                        val snapped = (Math.round(it / 30f) * 30).coerceIn(0, 360)
-                        state.historyRetentionDays = snapped
-                    },
-                    onValueChangeFinished = { state.persistSettings() },
-                    valueRange  = 0f..360f,
-                    steps       = 11,
-                    colors      = SliderDefaults.colors(
-                        thumbColor          = LocalNyoraAccent.current.color,
-                        activeTrackColor    = LocalNyoraAccent.current.color,
-                        inactiveTrackColor  = NyoraTokens.surface2,
-                    ),
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text("Forever", style = MaterialTheme.typography.labelSmall, color = NyoraTokens.onSurfaceFaint)
-                    Text("360 days", style = MaterialTheme.typography.labelSmall, color = NyoraTokens.onSurfaceFaint)
-                }
-            }
-            HairlineDivider()
-            // Group history by date
-            SettingsToggle("Group History by Date", state.groupHistoryByDate) {
-                state.groupHistoryByDate = it
-                state.persistSettings()
-            }
-            HairlineDivider()
-            // History sort order dropdown
-            SettingsRow("History Sort Order") {
-                NyoraDropdown(
-                    selected = state.historySortOrder,
-                    options  = HISTORY_SORT_OPTIONS,
-                    onSelect = {
-                        state.historySortOrder = it
-                        state.persistSettings()
-                    },
-                )
-            }
-        }
-
-        // (4) TRANSLATION ──────────────────────────────────────────────────────────────────
-        SettingsSection(eyebrow = "OCR / MT", title = "Translation", icon = Icons.Rounded.Translate) {
-            // Translation enabled
-            SettingsToggle("Enable In-Reader Translation", state.translateEnabled) {
-                state.translateEnabled = it
-            }
-            HairlineDivider()
-            // Instant translate on chapter open
-            SettingsToggle("Instant Translate on Chapter Open", state.instantTranslate) {
-                state.instantTranslate = it
-                state.persistSettings()
-            }
-            HairlineDivider()
-            // Target language dropdown
-            SettingsRow("Target Language") {
-                NyoraDropdown(
-                    selected = state.translateTarget,
-                    options  = TARGET_LANG_OPTIONS,
-                    onSelect = { state.changeTranslateTarget(it) },
-                )
-            }
-            HairlineDivider()
-            // OCR source language
-            SettingsRow("OCR Source Language") {
-                NyoraDropdown(
-                    selected = state.translateLangs,
-                    options  = OCR_LANG_OPTIONS,
-                    onSelect = { state.changeTranslateLangs(it) },
-                )
-            }
-            InfoNote(
-                "On-device OCR uses the built-in Windows OCR engine. Add the source " +
-                    "language under Windows Settings ▸ Time & language ▸ Language & region " +
-                    "to install its OCR support.",
+            Spacer(Modifier.height(8.dp))
+            Slider(
+                value       = state.gridSize.toFloat(),
+                onValueChange = { state.gridSize = it.toInt() },
+                onValueChangeFinished = { state.persistSettings() },
+                valueRange  = 120f..220f,
+                steps       = 9,
+                colors      = SliderDefaults.colors(
+                    thumbColor          = LocalNyoraAccent.current.color,
+                    activeTrackColor    = LocalNyoraAccent.current.color,
+                    inactiveTrackColor  = NyoraTokens.surface2,
+                ),
             )
-            HairlineDivider()
-            // AI refinement — polish the machine-translation draft.
-            SettingsRow("AI Refinement") {
-                NyoraDropdown(
-                    selected = state.aiMode,
-                    options  = AI_MODE_OPTIONS,
-                    onSelect = { state.changeAiMode(it) },
-                )
-            }
-            when (state.aiMode) {
-                AiMode.WINDOWS -> {
-                    LaunchedEffect(Unit) { state.refreshWindowsAi() }
-                    InfoNote(
-                        when (state.windowsAiAvailable) {
-                            true -> "Windows AI (Phi Silica) is available — polishing translations on-device, free and private."
-                            false -> "Windows AI isn't available on this PC (needs a Copilot+ PC with the Windows App SDK runtime). Falling back to machine translation — or choose Custom key below."
-                            null -> "Checking Windows AI availability…"
-                        },
-                    )
-                }
-                AiMode.BYOK -> ByokFields(state)
-                AiMode.OFF -> {}
-            }
-        }
-
-        // (5) PRIVACY ──────────────────────────────────────────────────────────────────────
-        SettingsSection(eyebrow = "Security", title = "Privacy", icon = Icons.Rounded.Lock) {
-            // Incognito (side-effect setter)
-            SettingsToggle("Incognito Mode", state.incognito) {
-                state.setIncognito(it)
-            }
-            HairlineDivider()
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text(
-                    "Reading is not recorded to history while incognito.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NyoraTokens.onSurfaceMuted,
-                )
-            }
-            HairlineDivider()
-            // Confirm before quitting
-            SettingsToggle("Confirm Before Quitting", state.confirmBeforeQuit) {
-                state.confirmBeforeQuit = it
-                state.persistSettings()
+                Text("120", style = MaterialTheme.typography.labelSmall, color = NyoraTokens.onSurfaceFaint)
+                Text("220", style = MaterialTheme.typography.labelSmall, color = NyoraTokens.onSurfaceFaint)
             }
         }
-
-        // (6) CLOUD SYNC ───────────────────────────────────────────────────────────────────
-        CloudSyncSection(state)
-
-        // (6b) PARSER UPDATES ──────────────────────────────────────────────────────────────
-        ParserUpdatesSection(state)
-
-        // (7) ADVANCED / NAVIGATION ────────────────────────────────────────────────────────
-        SettingsSection(eyebrow = "Advanced", title = "More", icon = Icons.Rounded.SyncAlt) {
-            NavRow("Network", "Proxy, DoH, mirrors", Icons.Rounded.Cloud) { openPanel("network") }
-            HairlineDivider()
-            NavRow("Downloads", "Concurrent downloads, format", Icons.Rounded.Download) {
-                state.destination = NavDest.DOWNLOADS
-            }
-            HairlineDivider()
-            NavRow("Backup & Restore", "Export or import your library", Icons.Rounded.Storage) { openPanel("backup") }
-            HairlineDivider()
-            NavRow("AniList Tracker", "Sync reading progress", Icons.Rounded.SyncAlt) { openPanel("tracker") }
-            HairlineDivider()
-            NavRow("Statistics", "Streaks, top sources & more", Icons.Rounded.BarChart) {
-                state.destination = NavDest.STATS
-            }
-        }
-
-        // (8) ABOUT ────────────────────────────────────────────────────────────────────────
-        SettingsSection(eyebrow = "Info", title = "About", icon = Icons.Rounded.AutoStories) {
-            SettingsRow("Build") {
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        "Nyora • Windows",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = NyoraTokens.onSurfaceHigh,
-                    )
-                    Text(
-                        "v$VERSION",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = LocalNyoraAccent.current.color,
-                    )
-                }
-            }
-            HairlineDivider()
-            SettingsRow("Platform") {
-                Text(
-                    "${System.getProperty("os.name")} (${System.getProperty("os.arch")})",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = NyoraTokens.onSurfaceMuted,
-                )
-            }
-            HairlineDivider()
-            SettingsRow("Database") {
-                Text(
-                    text = SqlDelightLibraryRepository.defaultDatabasePath().toString(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NyoraTokens.onSurfaceFaint,
-                )
-            }
-        }
-
-        Spacer(Modifier.height(48.dp))
+        HairlineDivider()
+        InfoNote("Color correction lives in the reader — open any chapter and tap the palette.")
     }
 }
+
+@Composable
+private fun LibraryCategory(state: AppState) = CategoryScroll {
+    SettingsSection(eyebrow = "Library", title = "Library & History", icon = Icons.Rounded.History) {
+        SettingsToggle("Hide NSFW Content", state.nsfwFilter) { state.nsfwFilter = it }
+        HairlineDivider()
+        SettingsToggle("Hide NSFW Sources", state.hideNsfwSources) {
+            state.hideNsfwSources = it
+            state.persistSettings()
+        }
+        HairlineDivider()
+        // History retention slider 0-360 step 30
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "History Retention",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = NyoraTokens.onSurfaceHigh,
+                )
+                Text(
+                    if (state.historyRetentionDays == 0) "Forever"
+                    else "${state.historyRetentionDays} days",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = LocalNyoraAccent.current.color,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Slider(
+                value       = state.historyRetentionDays.toFloat(),
+                onValueChange = {
+                    val snapped = (Math.round(it / 30f) * 30).coerceIn(0, 360)
+                    state.historyRetentionDays = snapped
+                },
+                onValueChangeFinished = { state.persistSettings() },
+                valueRange  = 0f..360f,
+                steps       = 11,
+                colors      = SliderDefaults.colors(
+                    thumbColor          = LocalNyoraAccent.current.color,
+                    activeTrackColor    = LocalNyoraAccent.current.color,
+                    inactiveTrackColor  = NyoraTokens.surface2,
+                ),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("Forever", style = MaterialTheme.typography.labelSmall, color = NyoraTokens.onSurfaceFaint)
+                Text("360 days", style = MaterialTheme.typography.labelSmall, color = NyoraTokens.onSurfaceFaint)
+            }
+        }
+        HairlineDivider()
+        SettingsToggle("Group History by Date", state.groupHistoryByDate) {
+            state.groupHistoryByDate = it
+            state.persistSettings()
+        }
+        HairlineDivider()
+        SettingsRow("History Sort Order") {
+            NyoraDropdown(
+                selected = state.historySortOrder,
+                options  = HISTORY_SORT_OPTIONS,
+                onSelect = {
+                    state.historySortOrder = it
+                    state.persistSettings()
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun TranslationCategory(state: AppState) = CategoryScroll {
+    SettingsSection(eyebrow = "OCR / MT", title = "Translation", icon = Icons.Rounded.Translate) {
+        SettingsToggle("Enable In-Reader Translation", state.translateEnabled) {
+            state.translateEnabled = it
+        }
+        HairlineDivider()
+        SettingsToggle("Instant Translate on Chapter Open", state.instantTranslate) {
+            state.instantTranslate = it
+            state.persistSettings()
+        }
+        HairlineDivider()
+        SettingsRow("Target Language") {
+            NyoraDropdown(
+                selected = state.translateTarget,
+                options  = TARGET_LANG_OPTIONS,
+                onSelect = { state.changeTranslateTarget(it) },
+            )
+        }
+        HairlineDivider()
+        SettingsRow("OCR Source Language") {
+            NyoraDropdown(
+                selected = state.translateLangs,
+                options  = OCR_LANG_OPTIONS,
+                onSelect = { state.changeTranslateLangs(it) },
+            )
+        }
+        InfoNote(
+            "On-device OCR uses the built-in Windows OCR engine. Add the source " +
+                "language under Windows Settings ▸ Time & language ▸ Language & region " +
+                "to install its OCR support.",
+        )
+        HairlineDivider()
+        SettingsRow("AI Refinement") {
+            NyoraDropdown(
+                selected = state.aiMode,
+                options  = AI_MODE_OPTIONS,
+                onSelect = { state.changeAiMode(it) },
+            )
+        }
+        when (state.aiMode) {
+            AiMode.WINDOWS -> {
+                LaunchedEffect(Unit) { state.refreshWindowsAi() }
+                InfoNote(
+                    when (state.windowsAiAvailable) {
+                        true -> "Windows AI (Phi Silica) is available — polishing translations on-device, free and private."
+                        false -> "Windows AI isn't available on this PC (needs a Copilot+ PC with the Windows App SDK runtime). Falling back to machine translation — or choose Custom key below."
+                        null -> "Checking Windows AI availability…"
+                    },
+                )
+            }
+            AiMode.BYOK -> ByokFields(state)
+            AiMode.OFF -> {}
+        }
+    }
+}
+
+@Composable
+private fun PrivacyCategory(state: AppState) = CategoryScroll {
+    SettingsSection(eyebrow = "Security", title = "Privacy", icon = Icons.Rounded.Lock) {
+        SettingsToggle("Incognito Mode", state.incognito) {
+            state.setIncognito(it)
+        }
+        HairlineDivider()
+        InfoNote("Reading is not recorded to history while incognito.")
+        HairlineDivider()
+        SettingsToggle("Confirm Before Quitting", state.confirmBeforeQuit) {
+            state.confirmBeforeQuit = it
+            state.persistSettings()
+        }
+    }
+}
+
+@Composable
+private fun AboutCategory(state: AppState) = CategoryScroll {
+    SettingsSection(eyebrow = "Info", title = "About", icon = Icons.Rounded.Info) {
+        SettingsRow("Build") {
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    "Nyora • Windows",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = NyoraTokens.onSurfaceHigh,
+                )
+                Text(
+                    "v$VERSION",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = LocalNyoraAccent.current.color,
+                )
+            }
+        }
+        HairlineDivider()
+        SettingsRow("Platform") {
+            Text(
+                "${System.getProperty("os.name")} (${System.getProperty("os.arch")})",
+                style = MaterialTheme.typography.labelSmall,
+                color = NyoraTokens.onSurfaceMuted,
+            )
+        }
+        HairlineDivider()
+        SettingsRow("Database") {
+            Text(
+                text = SqlDelightLibraryRepository.defaultDatabasePath().toString(),
+                style = MaterialTheme.typography.bodySmall,
+                color = NyoraTokens.onSurfaceFaint,
+            )
+        }
+    }
+}
+
+// ── Cloud sync + parser updates (their own self-loading sections) ─────────────────────
 
 @Composable
 private fun CloudSyncSection(state: AppState) {
@@ -507,7 +565,7 @@ private fun CloudSyncSection(state: AppState) {
         status.isAuthenticated -> "Signed in"
         else -> "Signed out"
     }
-    SettingsSection(eyebrow = "Cloud", title = "Nyora Sync", icon = Icons.Rounded.Cloud) {
+    SettingsSection(eyebrow = "Cloud", title = "Nyora Sync", icon = Icons.Rounded.Sync) {
         SettingsRow("Status") {
             Column(horizontalAlignment = Alignment.End) {
                 Text(
@@ -545,6 +603,10 @@ private fun CloudSyncSection(state: AppState) {
                 }
             } else {
                 Button(onClick = { state.cloudSignInWithGoogle() }, enabled = !busy && status?.isConfigured != false) {
+                    if (!busy) {
+                        Image(GoogleLogo, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                    }
                     Text(if (busy) "Opening..." else "Sign in with Google")
                 }
             }
@@ -669,53 +731,6 @@ private fun SettingsToggle(label: String, checked: Boolean, onToggle: (Boolean) 
 }
 
 @Composable
-private fun NavRow(title: String, subtitle: String, icon: ImageVector, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .clickable { onClick() }
-            .padding(horizontal = 18.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(NyoraTokens.surface1),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = LocalNyoraAccent.current.color,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-        Spacer(Modifier.width(14.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = NyoraTokens.onSurfaceHigh,
-            )
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = NyoraTokens.onSurfaceMuted,
-            )
-        }
-        Icon(
-            Icons.Rounded.ChevronRight,
-            contentDescription = null,
-            tint = NyoraTokens.onSurfaceFaint,
-            modifier = Modifier.size(22.dp),
-        )
-    }
-}
-
-@Composable
 private fun HairlineDivider() {
     HorizontalDivider(
         modifier = Modifier.padding(horizontal = 18.dp),
@@ -724,9 +739,6 @@ private fun HairlineDivider() {
 }
 
 // ── Appearance segmented control (Amoled / Light) ──────────────────────────────────
-//
-// Uses accentGradientSubtle() as the fill of the selected segment, matching the
-// design-language rule: "accentGradientSubtle on selected chips/segmented fills".
 
 @Composable
 private fun AppearanceSegmented(
@@ -826,12 +838,6 @@ private fun ThreeSegmented(
         }
     }
 }
-
-// ── Nyora-styled dropdown ─────────────────────────────────────────────────────────
-//
-// A chip-style trigger that opens a DropdownMenu. The selected item label is shown
-// in the chip; options are pairs of (value, displayLabel). Works for any <T> by
-// using an index-matched approach so the generic stays clean.
 
 /** A muted explanatory note rendered inside a settings section. */
 @Composable

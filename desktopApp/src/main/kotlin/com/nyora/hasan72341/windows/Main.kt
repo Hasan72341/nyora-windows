@@ -9,10 +9,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
-import androidx.compose.ui.window.WindowState
+import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
 import com.nyora.windows.ui.App
 import com.nyora.hasan72341.shared.HelperMain
 import com.nyora.hasan72341.shared.data.ExtensionInstaller
@@ -20,6 +24,8 @@ import com.nyora.hasan72341.shared.data.SourceCatalogClient
 import com.nyora.hasan72341.shared.proxy.NyoraRestServer
 import com.nyora.hasan72341.shared.reader.PageImageLoader
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 
 fun main() {
@@ -52,6 +58,15 @@ fun main() {
         // showQuitDialog tracks whether the confirmation AlertDialog is visible.
         var showQuitDialog by remember { mutableStateOf(false) }
 
+        // Native window placement: restore the last size + maximized/snapped state,
+        // and persist changes so the app reopens exactly where you left it.
+        val windowState = rememberWindowState(
+            width = appState.windowWidth.dp,
+            height = appState.windowHeight.dp,
+            position = WindowPosition(Alignment.Center),
+            placement = if (appState.windowMaximized) WindowPlacement.Maximized else WindowPlacement.Floating,
+        )
+
         Window(
             onCloseRequest = {
                 if (appState.confirmBeforeQuit) {
@@ -62,8 +77,27 @@ fun main() {
                 }
             },
             title = "Nyora",
-            state = WindowState(width = 1280.dp, height = 800.dp),
+            state = windowState,
+            resizable = true,
         ) {
+            // Native minimum size so Windows snap / drag-resize respects a usable floor.
+            LaunchedEffect(Unit) { window.minimumSize = java.awt.Dimension(940, 640) }
+            // Remember size + maximized across launches; collectLatest + delay debounces
+            // the rapid stream of values produced while dragging the window edge.
+            LaunchedEffect(windowState) {
+                snapshotFlow {
+                    Triple(
+                        windowState.size.width.value.toInt(),
+                        windowState.size.height.value.toInt(),
+                        windowState.placement == WindowPlacement.Maximized,
+                    )
+                }
+                    .distinctUntilChanged()
+                    .collectLatest { (w, h, max) ->
+                        delay(400)
+                        if (w > 0 && h > 0) appState.saveWindowPlacement(w, h, max)
+                    }
+            }
             App(state = appState)
 
             // Confirmation dialog rendered inside the window's composition scope.
