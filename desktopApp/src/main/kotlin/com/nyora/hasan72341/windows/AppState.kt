@@ -504,7 +504,12 @@ class AppState(
             runCatching {
                 val svc = withContext(Dispatchers.IO) { facade.openExtension(src) }
                 val details: MangaDetails = withContext(Dispatchers.IO) { svc.getDetails(manga.url) }
-                val full = details.manga.copy(chapters = details.chapters)
+                // Asura (and some parsers) return no cover from getDetails — keep the
+                // list/grid cover the user clicked so the details hero doesn't go blank.
+                val full = details.manga.copy(
+                    chapters = details.chapters,
+                    coverUrl = details.manga.coverUrl.ifBlank { manga.coverUrl },
+                )
                 withContext(Dispatchers.IO) { facade.upsertManga(full) }
                 selectedManga = full
             }.onFailure { t ->
