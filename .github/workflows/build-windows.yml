@@ -33,18 +33,26 @@ jobs:
           # GITHUB_TOKEN can't read it, so use a PAT that can.
           token: ${{ secrets.SUBMODULE_TOKEN }}
 
+      # Zulu (Azul) ships JDK 17 for BOTH Windows x64 and aarch64; Temurin has no
+      # Windows-ARM64 17 build, so setup-java can't satisfy it on the arm64 runner.
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
+          distribution: zulu
           java-version: "17"
 
-      # jpackage builds the .exe installer with the bundled WiX-free path, but
-      # Compose's exe packaging still shells out to WiX v3 for the installer DB.
-      # The Windows runners ship Chocolatey.
+      # jpackage's Windows .exe/.msi installers require WiX 3.x (candle.exe /
+      # light.exe) on PATH. The choco package is flaky (its .NET 3.5 dependency
+      # fails on the runners), so drop the WiX 3.14 binaries straight onto PATH.
+      # They're x86 and run under emulation on the arm64 runner.
       - name: Install WiX Toolset v3
         shell: pwsh
-        run: choco install wixtoolset --version=3.11.2 -y --no-progress
+        run: |
+          $url = "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip"
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\wix.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP\wix.zip" -DestinationPath "$env:RUNNER_TEMP\wix" -Force
+          "$env:RUNNER_TEMP\wix" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Host "WiX installed:"; Get-ChildItem "$env:RUNNER_TEMP\wix\candle.exe","$env:RUNNER_TEMP\wix\light.exe" | Format-List Name
 
       - name: Package EXE installer
         shell: pwsh
