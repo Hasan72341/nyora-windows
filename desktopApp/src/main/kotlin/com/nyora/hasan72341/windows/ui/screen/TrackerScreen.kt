@@ -316,7 +316,7 @@ private fun AniListMediaRow(media: AniListMediaDto, state: AppState) {
                     shape = RoundedCornerShape(8.dp),
                 ) {
                     Text(
-                        text = "★ ${score / 10.0}",
+                        text = "${score / 10.0}",
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Black,
