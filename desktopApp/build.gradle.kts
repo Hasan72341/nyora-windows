@@ -25,6 +25,12 @@ dependencies {
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.0.4")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // JNA — Windows-native chrome: DWM dark title bar + Mica backdrop, and registry
+    // reads for the system light/dark theme + accent colour. Runtime use is guarded
+    // to Windows; harmless on the macOS/Linux build host.
+    implementation("net.java.dev.jna:jna:5.14.0")
+    implementation("net.java.dev.jna:jna-platform:5.14.0")
+
     // Force modern Skiko runtime to match the Compose version and prevent
     // UnsatisfiedLinkError. Windows x64 + ARM64 are the primary targets here;
     // the macOS/Linux runtimes are kept so the project still compiles + runs on

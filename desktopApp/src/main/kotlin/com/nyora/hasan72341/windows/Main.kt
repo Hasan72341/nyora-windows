@@ -18,6 +18,8 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.nyora.windows.ui.App
+import com.nyora.windows.ui.theme.AppearanceMode
+import com.nyora.windows.ui.theme.WindowsNative
 import com.nyora.hasan72341.shared.HelperMain
 import com.nyora.hasan72341.shared.data.ExtensionInstaller
 import com.nyora.hasan72341.shared.data.SourceCatalogClient
@@ -82,6 +84,10 @@ fun main() {
         ) {
             // Native minimum size so Windows snap / drag-resize respects a usable floor.
             LaunchedEffect(Unit) { window.minimumSize = java.awt.Dimension(940, 640) }
+            // Native chrome: dark title bar matching the app theme + Mica backdrop (Win11).
+            LaunchedEffect(appState.appearance) {
+                WindowsNative.applyChrome(window, dark = appState.appearance != AppearanceMode.LIGHT)
+            }
             // Remember size + maximized across launches; collectLatest + delay debounces
             // the rapid stream of values produced while dragging the window edge.
             LaunchedEffect(windowState) {
