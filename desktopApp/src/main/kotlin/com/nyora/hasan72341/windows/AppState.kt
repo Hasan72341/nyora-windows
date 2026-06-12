@@ -258,6 +258,17 @@ class AppState(
     var syncServerUrl   by mutableStateOf("")
     var cloudSyncStatus by mutableStateOf<SupabaseStatusResponse?>(null)
     var cloudSyncBusy   by mutableStateOf(false)
+
+    /** First-run start page gate — true until the user finishes onboarding (signs in
+     *  or taps "Continue as guest"), tracked by a marker file under the config dir. */
+    var showWelcome by mutableStateOf(!File(configDir(), ".onboarded").exists())
+
+    // Native window placement — restored on launch, persisted on change so the app
+    // remembers its size + maximized/snapped state like a native Windows app.
+    private val winProps = readWindowProps()
+    var windowWidth     by mutableStateOf(winProps.getProperty("width")?.toIntOrNull() ?: 1280)
+    var windowHeight    by mutableStateOf(winProps.getProperty("height")?.toIntOrNull() ?: 800)
+    var windowMaximized by mutableStateOf(winProps.getProperty("maximized")?.toBoolean() ?: false)
     var otaStatus       by mutableStateOf<OtaStatusResponse?>(null)
     var otaBusy         by mutableStateOf(false)
 
@@ -1115,13 +1126,50 @@ class AppState(
 
     private fun prefsFile(): File = File(configDir(), "appPrefs.json")
 
+    // ── First-run onboarding marker ───────────────────────────────────────────
+    private fun onboardedMarker(): File = File(configDir(), ".onboarded")
+
+    /** Dismiss the welcome/start page and remember the choice so it never shows again. */
+    fun finishOnboarding() {
+        showWelcome = false
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                val dir = configDir(); if (!dir.exists()) dir.mkdirs()
+                onboardedMarker().writeText("1")
+            }
+        }
+    }
+
+    // ── Native window placement persistence ───────────────────────────────────
+    private fun windowPropsFile(): File = File(configDir(), "window.properties")
+
+    private fun readWindowProps(): java.util.Properties {
+        val p = java.util.Properties()
+        runCatching { windowPropsFile().takeIf { it.exists() }?.inputStream()?.use { p.load(it) } }
+        return p
+    }
+
+    /** Persist the window's size + maximized state (the caller debounces the calls). */
+    fun saveWindowPlacement(width: Int, height: Int, maximized: Boolean) {
+        windowWidth = width; windowHeight = height; windowMaximized = maximized
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                val dir = configDir(); if (!dir.exists()) dir.mkdirs()
+                val p = java.util.Properties()
+                p["width"] = width.toString()
+                p["height"] = height.toString()
+                p["maximized"] = maximized.toString()
+                windowPropsFile().outputStream().use { p.store(it, "Nyora window placement") }
+            }
+        }
+    }
+
     private fun loadPrefs() {
         runCatching {
             val f = prefsFile()
             if (!f.exists()) return
             val dto = prefsJson.decodeFromString<AppPrefs>(f.readText())
             _appearance = runCatching { AppearanceMode.valueOf(dto.appearance) }.getOrDefault(AppearanceMode.AMOLED)
-            println("NYORA-DBG loadPrefs file=${f.path} raw.appearance=${dto.appearance} -> _appearance=$_appearance")
             _accent     = runCatching { Accent.valueOf(dto.accent) }.getOrDefault(Accent.RED)
             _anilistToken = dto.anilistToken
             syncToken     = dto.syncToken

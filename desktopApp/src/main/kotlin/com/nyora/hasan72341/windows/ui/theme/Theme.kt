@@ -105,7 +105,6 @@ fun NyoraTheme(
     // on light/amoled swap. SideEffect runs after a successful composition, so the snapshot
     // writes here are applied outside composition and safely invalidate token readers.
     androidx.compose.runtime.SideEffect {
-        println("NYORA-DBG NyoraTheme appearance=$appearance applyLight=${appearance == AppearanceMode.LIGHT}")
         NyoraTokens.applyPalette(if (appearance == AppearanceMode.LIGHT) LightPalette else AmoledPalette)
     }
     CompositionLocalProvider(LocalNyoraAccent provides accent) {

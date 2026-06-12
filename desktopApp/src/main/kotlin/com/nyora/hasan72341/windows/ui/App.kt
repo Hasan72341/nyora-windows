@@ -38,6 +38,11 @@ import com.nyora.windows.ui.theme.NyoraTokens
 @Composable
 fun App(state: AppState) {
     NyoraTheme(appearance = state.appearance, accent = state.accent) {
+        // First-run start page gates the whole app until the user signs in or skips.
+        if (state.showWelcome) {
+            WelcomeScreen(state)
+            return@NyoraTheme
+        }
         Box(
             modifier = Modifier.fillMaxSize().onKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
