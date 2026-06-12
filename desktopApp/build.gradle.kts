@@ -75,7 +75,7 @@ compose.desktop {
                 perUserInstall = true
                 dirChooser     = true
                 console        = false
-                // iconFile.set(project.file("src/main/resources/nyora.ico"))
+                iconFile.set(project.file("src/main/resources/nyora.ico"))
             }
 
             linux {
