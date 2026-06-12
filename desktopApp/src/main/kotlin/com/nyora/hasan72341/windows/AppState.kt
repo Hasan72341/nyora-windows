@@ -1040,8 +1040,19 @@ class AppState(
 
     fun sourceFor(manga: Manga): MangaSource? {
         val refName = manga.source.name
+        // Browsed/synced manga carry a canonical "JS_<ID>" ref while installed sources
+        // use "parser:<ID>" — so match on the BARE id too (strip JS_/parser:). Without
+        // this, opening any chapter fails to resolve its source ("Source not installed").
+        val bare = refName.removePrefix("JS_").substringAfterLast(':')
+        if (bare.isBlank() || bare == "Unknown" || bare == "Local") {
+            return sources.firstOrNull { it.isInstalled && (it.id == refName || it.name == refName) }
+        }
         return sources.firstOrNull { src ->
-            src.isInstalled && (src.id == refName || src.id.endsWith(":$refName") || src.name == refName)
+            src.isInstalled && (
+                src.id == refName || src.name == refName ||
+                src.id == "parser:$bare" || src.id.endsWith(":$bare") ||
+                src.id.removePrefix("parser:") == bare
+            )
         }
     }
 
@@ -1056,8 +1067,11 @@ class AppState(
 
     fun coverProxyUrl(coverUrl: String, source: MangaSource? = null): String {
         if (coverUrl.isBlank()) return ""
+        if (coverUrl.startsWith(imageBaseUrl)) return coverUrl  // already proxied (e.g. browse results)
         val encoded = URLEncoder.encode(coverUrl, "UTF-8")
-        return "$imageBaseUrl/image?u=$encoded"
+        val refParam = source?.baseUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() }
+            ?.let { "&h=" + URLEncoder.encode("Referer:$it/", "UTF-8") } ?: ""
+        return "$imageBaseUrl/image?u=$encoded$refParam"
     }
 
     // ── Appearance / accent persistence ─────────────────────────────────────────
