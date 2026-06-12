@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPlacement
@@ -91,6 +92,7 @@ fun main() {
                 }
             },
             title = "Nyora",
+            icon = painterResource("nyora.png"),
             state = windowState,
             resizable = true,
         ) {
