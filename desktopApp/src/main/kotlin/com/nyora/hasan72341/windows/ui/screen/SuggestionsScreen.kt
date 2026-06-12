@@ -22,7 +22,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.TrendingUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -75,7 +74,7 @@ fun SuggestionsScreen(state: AppState) {
                 .padding(horizontal = 20.dp, vertical = 16.dp),
         ) {
             SectionHeader(
-                title = "For You",
+                title = "Discover",
                 subtitle = "Trending on AniList",
                 modifier = Modifier.padding(bottom = 0.dp),
             )
@@ -209,7 +208,7 @@ private fun BoxScope.CoverCaption(
         Row(verticalAlignment = Alignment.CenterVertically) {
             var emitted = false
             if (score != null) {
-                SystemTag(text = "★ $score%")
+                SystemTag(text = "$score%")
                 emitted = true
             }
             if (!genre.isNullOrBlank()) {
@@ -288,7 +287,7 @@ private fun EmptySuggestions() {
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.AutoAwesome,
+                        imageVector = Icons.Rounded.TrendingUp,
                         contentDescription = null,
                         tint = accent,
                         modifier = Modifier.size(34.dp),

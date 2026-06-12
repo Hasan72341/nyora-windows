@@ -190,7 +190,7 @@ fun DetailsScreen(state: AppState) {
                                     manga.state?.let { ChipTag(it.name, accent) }
                                     manga.contentRating?.let { ChipTag(it.name) }
                                     if (manga.rating > 0f) {
-                                        ChipTag("★ ${"%.1f".format(manga.rating * 10)}")
+                                        ChipTag("${"%.1f".format(manga.rating * 10)}")
                                     }
                                     ChipTag("${manga.chapters.size} CH")
                                 }

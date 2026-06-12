@@ -61,7 +61,7 @@ private val NAV_SECTIONS = listOf(
         "Discover",
         listOf(
             NavItem(NavDest.EXPLORE, Icons.Default.Explore, "Explore"),
-            NavItem(NavDest.SUGGESTIONS, Icons.Default.AutoAwesome, "For You"),
+            NavItem(NavDest.SUGGESTIONS, Icons.Default.TrendingUp, "Discover"),
             NavItem(NavDest.UPDATES, Icons.Default.Autorenew, "Updates"),
         ),
     ),

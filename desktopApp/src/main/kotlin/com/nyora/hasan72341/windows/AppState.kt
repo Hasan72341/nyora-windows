@@ -1466,7 +1466,7 @@ class AppState(
                 }
                 val resp = prefsJson.decodeFromString<AniListFeedResponse>(raw)
                 withContext(Dispatchers.Main) { anilistFeed = resp.data.Page.media }
-            }.onFailure { showStatus("For You feed failed: ${it.message}") }
+            }.onFailure { showStatus("Discover feed failed: ${it.message}") }
             anilistFeedLoading = false
         }
     }
