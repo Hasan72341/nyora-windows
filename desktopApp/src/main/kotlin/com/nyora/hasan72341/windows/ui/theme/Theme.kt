@@ -4,6 +4,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -30,15 +31,22 @@ enum class AppearanceMode { AMOLED, LIGHT }
  * Material3 `primary` and surfaced via [LocalNyoraAccent] so the DesignSystem
  * brushes/glows recolor live.
  */
-enum class Accent(val color: Color) {
-    RED(Color(0xFFE63946)),
-    SAKURA(Color(0xFFFF6B81)),
-    IRIS(Color(0xFF7C5CFF)),
-    MINT(Color(0xFF5CE1C0)),
-    ORANGE(Color(0xFFFF8A4C)),
-    GOLD(Color(0xFFE9C46A)),
-    AZURE(Color(0xFF4CA6FF)),
-    VIOLET(Color(0xFFB14CFF)),
+enum class Accent {
+    SYSTEM, RED, SAKURA, IRIS, MINT, ORANGE, GOLD, AZURE, VIOLET;
+
+    /** Resolved accent colour. [SYSTEM] follows the live Windows accent, falling back
+     *  to RED off Windows or when the registry read fails. */
+    val color: Color get() = when (this) {
+        SYSTEM -> WindowsNative.accentColor ?: Color(0xFFE63946)
+        RED    -> Color(0xFFE63946)
+        SAKURA -> Color(0xFFFF6B81)
+        IRIS   -> Color(0xFF7C5CFF)
+        MINT   -> Color(0xFF5CE1C0)
+        ORANGE -> Color(0xFFFF8A4C)
+        GOLD   -> Color(0xFFE9C46A)
+        AZURE  -> Color(0xFF4CA6FF)
+        VIOLET -> Color(0xFFB14CFF)
+    }
 }
 
 /**
@@ -110,6 +118,7 @@ fun NyoraTheme(
     CompositionLocalProvider(LocalNyoraAccent provides accent) {
         MaterialTheme(
             colorScheme = colorScheme,
+            typography  = WindowsNative.typography(Typography()),
             shapes      = NyoraShapes,
             content     = content,
         )

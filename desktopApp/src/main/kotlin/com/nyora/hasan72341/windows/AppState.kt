@@ -39,6 +39,7 @@ import com.nyora.windows.translate.MangaTranslator
 import com.nyora.windows.translate.PageTranslation
 import com.nyora.windows.ui.theme.AppearanceMode
 import com.nyora.windows.ui.theme.Accent
+import com.nyora.windows.ui.theme.WindowsNative
 import com.nyora.hasan72341.shared.NyoraFacade
 import com.nyora.hasan72341.shared.extension.MangaDetails
 import com.nyora.hasan72341.shared.model.Manga
@@ -1167,7 +1168,15 @@ class AppState(
     private fun loadPrefs() {
         runCatching {
             val f = prefsFile()
-            if (!f.exists()) return
+            if (!f.exists()) {
+                // First run — follow the Windows system theme + accent colour. The
+                // user can still override both from Settings ▸ Appearance afterwards.
+                WindowsNative.systemLight?.let {
+                    _appearance = if (it) AppearanceMode.LIGHT else AppearanceMode.AMOLED
+                }
+                if (WindowsNative.isWindows) _accent = Accent.SYSTEM
+                return
+            }
             val dto = prefsJson.decodeFromString<AppPrefs>(f.readText())
             _appearance = runCatching { AppearanceMode.valueOf(dto.appearance) }.getOrDefault(AppearanceMode.AMOLED)
             _accent     = runCatching { Accent.valueOf(dto.accent) }.getOrDefault(Accent.RED)
