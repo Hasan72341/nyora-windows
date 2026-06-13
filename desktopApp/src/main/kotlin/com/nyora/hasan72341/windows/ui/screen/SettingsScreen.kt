@@ -543,6 +543,15 @@ private fun AboutCategory(state: AppState) = CategoryScroll {
             )
         }
         HairlineDivider()
+        SettingsRow("GitHub") {
+            Text(
+                "Hasan72341/nyora-windows",
+                style = MaterialTheme.typography.labelSmall,
+                color = LocalNyoraAccent.current.color,
+                modifier = Modifier.clickable { state.openExternalUrl("https://github.com/Hasan72341/nyora-windows") },
+            )
+        }
+        HairlineDivider()
         SettingsRow("Platform") {
             Text(
                 "${System.getProperty("os.name")} (${System.getProperty("os.arch")})",
