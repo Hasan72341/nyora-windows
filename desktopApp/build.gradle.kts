@@ -64,6 +64,13 @@ compose.desktop {
             vendor             = "Nyora"
             copyright          = "© 2025 Nyora contributors"
 
+            // Bundle the full JDK module set into the jpackage/jlink runtime.
+            // Without this, jlink strips modules it can't statically detect — e.g.
+            // java.sql (needed by SQLDelight's JDBC SQLite driver) and the TLS
+            // crypto modules — and the packaged app crashes at runtime with
+            // NoClassDefFoundError: java/sql/DriverManager.
+            includeAllModules = true
+
             // Primary Windows packaging (MSI installer + portable EXE). The MSI
             // upgradeUuid MUST stay stable across releases so upgrades replace the
             // previous install instead of stacking side-by-side.
