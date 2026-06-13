@@ -1663,7 +1663,7 @@ class AppState(
         }
     }
 
-    private fun openExternalUrl(url: String) {
+    fun openExternalUrl(url: String) {
         runCatching {
             if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
                 Desktop.getDesktop().browse(URI(url))
