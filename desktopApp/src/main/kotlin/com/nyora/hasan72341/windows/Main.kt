@@ -75,9 +75,12 @@ fun main() {
 
         // Native window placement: restore the last size + maximized/snapped state,
         // and persist changes so the app reopens exactly where you left it.
+        // Clamp the saved/default size to the current display so the window never
+        // opens larger than the screen (small laptops, HiDPI, a smaller monitor).
+        val screen = remember { java.awt.Toolkit.getDefaultToolkit().screenSize }
         val windowState = rememberWindowState(
-            width = appState.windowWidth.dp,
-            height = appState.windowHeight.dp,
+            width = appState.windowWidth.coerceAtMost(screen.width - 40).dp,
+            height = appState.windowHeight.coerceAtMost(screen.height - 60).dp,
             position = WindowPosition(Alignment.Center),
             placement = if (appState.windowMaximized) WindowPlacement.Maximized else WindowPlacement.Floating,
         )
@@ -97,7 +100,12 @@ fun main() {
             resizable = true,
         ) {
             // Native minimum size so Windows snap / drag-resize respects a usable floor.
-            LaunchedEffect(Unit) { window.minimumSize = java.awt.Dimension(940, 640) }
+            LaunchedEffect(Unit) {
+                window.minimumSize = java.awt.Dimension(
+                    minOf(900, screen.width - 40),
+                    minOf(600, screen.height - 60),
+                )
+            }
             // Native chrome: dark title bar matching the app theme + Mica backdrop (Win11).
             LaunchedEffect(appState.appearance) {
                 WindowsNative.applyChrome(window, dark = appState.appearance != AppearanceMode.LIGHT)
