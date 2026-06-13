@@ -19,6 +19,16 @@ A native **Windows** manga reader built from scratch with **Compose Multiplatfor
 
 ---
 
+## 📸 Screenshots
+
+| | |
+|:-:|:-:|
+| ![Discover](docs/screenshots/discover.png) | ![Explore](docs/screenshots/explore.png) |
+| ![Library](docs/screenshots/library.png) | ![Reader](docs/screenshots/reader.png) |
+| ![Settings](docs/screenshots/settings.png) | ![Cloud Sync](docs/screenshots/cloud-sync.png) |
+
+---
+
 ## ✨ Features
 
 - 📚 **Hundreds of online sources** — browse, search & filter manga, manhwa & manhua.
