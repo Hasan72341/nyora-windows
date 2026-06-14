@@ -100,10 +100,16 @@ jobs:
           if-no-files-found: error
 
   submit:
-    name: Bundle and submit to the Store
+    name: Bundle and (optionally) submit to the Store
     needs: build
     runs-on: windows-latest
     timeout-minutes: 30
+    # Surface the Store credentials as env so steps can detect whether they're set.
+    env:
+      AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+      AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+      AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+      SELLER_ID: ${{ secrets.SELLER_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -129,19 +135,46 @@ jobs:
           Get-ChildItem dist -Filter *.msix | Format-Table Name, Length
           .\scripts\build-msixbundle.ps1 -InputDir dist -Version ${{ steps.ver.outputs.version }}
 
+      # Always publish the bundle as a downloadable artifact, so the first
+      # submission (which is manual) can grab it even when no credentials are set.
+      - name: Upload .msixbundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: msixbundle
+          path: dist/*.msixbundle
+          if-no-files-found: error
+
+      # Detect whether the Store credentials are configured. If not, the run
+      # still succeeds and you upload the .msixbundle artifact manually.
+      - name: Check Store credentials
+        id: creds
+        shell: pwsh
+        run: |
+          $have = -not ([string]::IsNullOrWhiteSpace($env:SELLER_ID) -or
+                        [string]::IsNullOrWhiteSpace($env:AZURE_AD_TENANT_ID) -or
+                        [string]::IsNullOrWhiteSpace($env:AZURE_AD_APPLICATION_CLIENT_ID) -or
+                        [string]::IsNullOrWhiteSpace($env:AZURE_AD_APPLICATION_SECRET))
+          "have=$($have.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          if (-not $have) {
+            Write-Host "::notice::Store secrets not set — skipping auto-submit. Download the 'msixbundle' artifact and upload it in Partner Center."
+          }
+
       - name: Configure the Microsoft Store CLI (puts msstore on PATH)
+        if: steps.creds.outputs.have == 'true'
         uses: microsoft/microsoft-store-apppublisher@v1.1
 
       - name: Authenticate msstore
+        if: steps.creds.outputs.have == 'true'
         shell: pwsh
         run: |
           msstore reconfigure `
-            --tenantId ${{ secrets.AZURE_AD_TENANT_ID }} `
-            --sellerId ${{ secrets.SELLER_ID }} `
-            --clientId ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }} `
-            --clientSecret ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+            --tenantId $env:AZURE_AD_TENANT_ID `
+            --sellerId $env:SELLER_ID `
+            --clientId $env:AZURE_AD_APPLICATION_CLIENT_ID `
+            --clientSecret $env:AZURE_AD_APPLICATION_SECRET
 
       - name: Publish the bundle to the Store
+        if: steps.creds.outputs.have == 'true'
         shell: pwsh
         run: |
           $bundle = Get-ChildItem dist -Filter *.msixbundle | Select-Object -First 1
