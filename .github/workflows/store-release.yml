@@ -1,0 +1,150 @@
+name: Microsoft Store release
+
+# Builds the Nyora Compose Desktop app as per-architecture MSIX packages (x64 on
+# windows-latest, ARM64 on windows-11-arm), bundles them into a single
+# .msixbundle, and submits it to the Microsoft Store via the Microsoft Store
+# Developer CLI (msstore).
+#
+# ── IMPORTANT CAVEATS (from Microsoft's docs) ──────────────────────────────────
+#   1. Store update automation is supported for FREE products only. Nyora is free. ✓
+#   2. The app must already be PUBLISHED AND LIVE in the Store at least once
+#      (do the first submission manually in Partner Center). This workflow
+#      automates UPDATES to that live product — not the very first submission.
+#   3. msstore authenticates with an Entra (Azure AD) app registration that has
+#      the "Manager" role in Partner Center → Account settings → User management.
+#
+# ── REQUIRED REPOSITORY SECRETS (Settings → Secrets and variables → Actions) ──
+#   AZURE_AD_TENANT_ID            Entra tenant ID
+#   AZURE_AD_APPLICATION_CLIENT_ID   Entra app registration "Application (client) ID"
+#   AZURE_AD_APPLICATION_SECRET      Entra app client secret value
+#   SELLER_ID                    Partner Center publisher / seller ID
+# The Store Product ID is public (it's in your Partner Center URL) — set below.
+#
+# ── BEFORE THE FIRST RUN ──
+#   Fill the real Partner Center identity into msix/AppxManifest.xml
+#   (Product management → Product Identity): Name, Publisher (CN=…), and
+#   PublisherDisplayName. The guard step below fails fast if placeholders remain.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version (e.g. 1.2.0). Normalised to 4 parts."
+        required: true
+        default: "1.0.0"
+  # To submit automatically whenever you publish a GitHub release, uncomment:
+  # release:
+  #   types: [published]
+
+env:
+  # Public Store product ID (from your Partner Center URL: .../products/<ID>/...).
+  STORE_PRODUCT_ID: "9MZTV9GXQ4V0"
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }} MSIX
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+          - arch: arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # nyora-shared is a public submodule now, so the default token can read it.
+          submodules: recursive
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: "17"
+
+      - name: Fail if the manifest still has Partner Center placeholders
+        shell: pwsh
+        run: |
+          $m = Get-Content -Raw msix/AppxManifest.xml
+          if ($m -match 'PARTNER_CENTER') {
+            Write-Error "msix/AppxManifest.xml still contains PARTNER_CENTER placeholders. Fill in your real Product Identity (Name, Publisher, PublisherDisplayName) from Partner Center before submitting."
+            exit 1
+          }
+          Write-Host "Manifest identity looks set."
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = "${{ github.event.inputs.version }}"
+          if ([string]::IsNullOrWhiteSpace($v)) {
+            # Triggered by a release: derive from the tag (strip a leading 'v').
+            $v = "${{ github.ref_name }}" -replace '^v',''
+          }
+          if ([string]::IsNullOrWhiteSpace($v)) { $v = "1.0.0" }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Version: $v"
+
+      - name: Build ${{ matrix.arch }} MSIX
+        shell: pwsh
+        run: .\scripts\build-msix.ps1 -Architecture ${{ matrix.arch }} -Version ${{ steps.ver.outputs.version }}
+
+      - name: Upload MSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: msix-${{ matrix.arch }}
+          path: dist/Nyora-${{ matrix.arch }}-*.msix
+          if-no-files-found: error
+
+  submit:
+    name: Bundle and submit to the Store
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download per-arch MSIX
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: msix-*
+          merge-multiple: true
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = "${{ github.event.inputs.version }}"
+          if ([string]::IsNullOrWhiteSpace($v)) { $v = "${{ github.ref_name }}" -replace '^v','' }
+          if ([string]::IsNullOrWhiteSpace($v)) { $v = "1.0.0" }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Bundle the .msix files into a .msixbundle
+        shell: pwsh
+        run: |
+          Get-ChildItem dist -Filter *.msix | Format-Table Name, Length
+          .\scripts\build-msixbundle.ps1 -InputDir dist -Version ${{ steps.ver.outputs.version }}
+
+      - name: Configure the Microsoft Store CLI (puts msstore on PATH)
+        uses: microsoft/microsoft-store-apppublisher@v1.1
+
+      - name: Authenticate msstore
+        shell: pwsh
+        run: |
+          msstore reconfigure `
+            --tenantId ${{ secrets.AZURE_AD_TENANT_ID }} `
+            --sellerId ${{ secrets.SELLER_ID }} `
+            --clientId ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }} `
+            --clientSecret ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+
+      - name: Publish the bundle to the Store
+        shell: pwsh
+        run: |
+          $bundle = Get-ChildItem dist -Filter *.msixbundle | Select-Object -First 1
+          if (-not $bundle) { throw "No .msixbundle found in dist/." }
+          Write-Host "Publishing $($bundle.Name) to product $env:STORE_PRODUCT_ID"
+          msstore publish "$($bundle.FullName)" -id $env:STORE_PRODUCT_ID
