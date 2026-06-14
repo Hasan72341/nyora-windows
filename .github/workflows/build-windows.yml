@@ -28,10 +28,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # nyora-shared is now a public submodule, so the default GITHUB_TOKEN
+          # can clone it — no PAT needed.
           submodules: recursive
-          # The nyora-shared submodule is a separate PRIVATE repo; the default
-          # GITHUB_TOKEN can't read it, so use a PAT that can.
-          token: ${{ secrets.SUBMODULE_TOKEN }}
 
       # Zulu (Azul) ships JDK 17 for BOTH Windows x64 and aarch64; Temurin has no
       # Windows-ARM64 17 build, so setup-java can't satisfy it on the arm64 runner.
