@@ -232,8 +232,8 @@ class AppState(
     // ── Appearance / accent (persisted to a small JSON file) ────────────────────
     // Backed by private state; mutate via setAppearance()/setAccent() so changes
     // persist. The public getters let composables observe the values.
-    private var _appearance by mutableStateOf(AppearanceMode.AMOLED)
-    private var _accent     by mutableStateOf(Accent.RED)
+    private var _appearance by mutableStateOf(AppearanceMode.DARK)
+    private var _accent     by mutableStateOf(Accent.SYSTEM)
     val appearance: AppearanceMode get() = _appearance
     val accent: Accent get() = _accent
 
@@ -1191,14 +1191,14 @@ class AppState(
                 // First run — follow the Windows system theme + accent colour. The
                 // user can still override both from Settings ▸ Appearance afterwards.
                 WindowsNative.systemLight?.let {
-                    _appearance = if (it) AppearanceMode.LIGHT else AppearanceMode.AMOLED
+                    _appearance = if (it) AppearanceMode.LIGHT else AppearanceMode.DARK
                 }
                 if (WindowsNative.isWindows) _accent = Accent.SYSTEM
                 return
             }
             val dto = prefsJson.decodeFromString<AppPrefs>(f.readText())
-            _appearance = runCatching { AppearanceMode.valueOf(dto.appearance) }.getOrDefault(AppearanceMode.AMOLED)
-            _accent     = runCatching { Accent.valueOf(dto.accent) }.getOrDefault(Accent.RED)
+            _appearance = runCatching { AppearanceMode.valueOf(dto.appearance) }.getOrDefault(AppearanceMode.DARK)
+            _accent     = runCatching { Accent.valueOf(dto.accent) }.getOrDefault(Accent.SYSTEM)
             _anilistToken = dto.anilistToken
             syncToken     = dto.syncToken
             syncServerUrl = dto.syncServerUrl
@@ -1764,8 +1764,8 @@ class AppState(
 
     @Serializable
     private data class AppPrefs(
-        val appearance: String = AppearanceMode.AMOLED.name,
-        val accent: String = Accent.RED.name,
+        val appearance: String = AppearanceMode.DARK.name,
+        val accent: String = Accent.SYSTEM.name,
         val anilistToken: String = "",
         val syncToken: String = "",
         val syncServerUrl: String = "",

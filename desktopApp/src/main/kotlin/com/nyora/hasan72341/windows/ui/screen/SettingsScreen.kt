@@ -5,12 +5,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.ChevronRight
@@ -44,7 +47,10 @@ import com.nyora.windows.ui.GoogleLogo
 import com.nyora.windows.ui.theme.Accent
 import com.nyora.windows.ui.theme.AppearanceMode
 import com.nyora.windows.ui.theme.LocalNyoraAccent
+import com.nyora.windows.ui.theme.NyoraShapes
 import com.nyora.windows.ui.theme.NyoraTokens
+import com.nyora.windows.ui.theme.nyoraDarkColorScheme
+import com.nyora.windows.ui.theme.nyoraLightColorScheme
 import com.nyora.windows.ui.theme.SystemTag
 import com.nyora.windows.ui.theme.accentGradientSubtle
 import com.nyora.windows.ui.theme.glassCard
@@ -244,7 +250,7 @@ private fun CategoryDetail(state: AppState, category: SettingsCategory) {
 @Composable
 private fun AppearanceCategory(state: AppState) = CategoryScroll {
     SettingsSection(eyebrow = "Look & Feel", title = "Appearance", icon = Icons.Rounded.Palette) {
-        // Theme — Amoled / Light segmented control with accentGradientSubtle on selected
+        // Theme — Dark / Light segmented control with accentGradientSubtle on selected
         SettingsRow("Theme") {
             AppearanceSegmented(
                 selected  = state.appearance,
@@ -255,14 +261,15 @@ private fun AppearanceCategory(state: AppState) = CategoryScroll {
         // Accent swatches
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp)) {
             Text(
-                "Accent",
+                "Color scheme",
                 style = MaterialTheme.typography.bodyLarge,
                 color = NyoraTokens.onSurfaceHigh,
             )
             Spacer(Modifier.height(14.dp))
-            AccentSwatchRow(
-                selected = state.accent,
-                onSelect = { state.setAccent(it) },
+            ColorSchemeRow(
+                selected   = state.accent,
+                appearance = state.appearance,
+                onSelect   = { state.setAccent(it) },
             )
         }
     }
@@ -815,7 +822,7 @@ private fun HairlineDivider() {
     )
 }
 
-// ── Appearance segmented control (Amoled / Light) ──────────────────────────────────
+// ── Appearance segmented control (Dark / Light) ──────────────────────────────────
 
 @Composable
 private fun AppearanceSegmented(
@@ -835,8 +842,8 @@ private fun AppearanceSegmented(
         AppearanceMode.entries.forEach { mode ->
             val isSelected = mode == selected
             val label = when (mode) {
-                AppearanceMode.AMOLED -> "Amoled"
-                AppearanceMode.LIGHT  -> "Light"
+                AppearanceMode.DARK  -> "Dark"
+                AppearanceMode.LIGHT -> "Light"
             }
             Box(
                 modifier = Modifier
@@ -1035,62 +1042,123 @@ private fun <T> NyoraDropdown(
     }
 }
 
-// ── Accent swatch row ───────────────────────────────────────────────────────────────
+// ── Color-scheme preview cards (android-style) ──────────────────────────────────────
+//
+// Mirrors nyora-android's item_color_scheme.xml: a horizontal scroll of themed mini
+// cards, each showing "Abc" text + two secondary-tone bars + a primary swatch + a check
+// when selected, with the scheme name beneath. Each card builds a mini Material scheme
+// from its own primary (resolved for the current appearance) so it renders self-themed.
 
 @Composable
-private fun AccentSwatchRow(
+private fun ColorSchemeRow(
     selected: Accent,
+    appearance: AppearanceMode,
     onSelect: (Accent) -> Unit,
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        Accent.entries.forEach { accent ->
-            AccentSwatch(
-                accent     = accent,
-                isSelected = accent == selected,
-                onClick    = { onSelect(accent) },
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(Accent.entries) { scheme ->
+            ColorSchemeCard(
+                scheme     = scheme,
+                appearance = appearance,
+                isSelected = scheme == selected,
+                onClick    = { onSelect(scheme) },
             )
         }
     }
 }
 
 @Composable
-private fun AccentSwatch(
-    accent: Accent,
+private fun ColorSchemeCard(
+    scheme: Accent,
+    appearance: AppearanceMode,
     isSelected: Boolean,
     onClick: () -> Unit,
 ) {
-    val size by androidx.compose.animation.core.animateDpAsState(
-        targetValue    = if (isSelected) 38.dp else 32.dp,
-        animationSpec  = androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 300f),
-        label          = "swatchSize",
-    )
-    Box(
+    // Derive a mini Material scheme from this card's own primary so it renders self-themed,
+    // matching the spec note ("build a mini derived scheme from the primary").
+    val primary = scheme.colorFor(appearance)
+    val miniScheme = remember(scheme, appearance) {
+        if (appearance == AppearanceMode.LIGHT) nyoraLightColorScheme(primary)
+        else nyoraDarkColorScheme(primary)
+    }
+    val cardShape = NyoraShapes.medium
+
+    Column(
         modifier = Modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .clickable { onClick() },
-        contentAlignment = Alignment.Center,
+            .clip(NyoraShapes.small)
+            .clickable { onClick() }
+            .padding(6.dp),
+        horizontalAlignment = Alignment.Start,
     ) {
-        if (isSelected) {
+        Box(
+            modifier = Modifier
+                .size(width = 72.dp, height = 96.dp)
+                .clip(cardShape)
+                .background(miniScheme.surface)
+                .border(
+                    width = if (isSelected) 2.dp else 1.dp,
+                    color = if (isSelected) miniScheme.primary else miniScheme.outline,
+                    shape = cardShape,
+                ),
+        ) {
+            // "Abc" sample text (top-start)
+            Text(
+                "Abc",
+                style = MaterialTheme.typography.bodyMedium,
+                color = miniScheme.onSurface,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 6.dp, top = 8.dp),
+            )
+            // Two secondary-tone bars (bottom-start)
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 6.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 28.dp, height = 6.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(miniScheme.secondary),
+                )
+                Box(
+                    modifier = Modifier
+                        .size(width = 46.dp, height = 6.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(miniScheme.secondary),
+                )
+            }
+            // Primary swatch (bottom-end)
             Box(
                 modifier = Modifier
-                    .size(size)
-                    .clip(CircleShape)
-                    .background(accent.color)
-                    .glowBorder(color = accent.color, shape = CircleShape),
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 6.dp, bottom = 6.dp)
+                    .size(16.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(miniScheme.primary),
             )
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(size)
-                    .clip(CircleShape)
-                    .background(accent.color)
-                    .border(
-                        width = 1.dp,
-                        color = NyoraTokens.hairlineStrong,
-                        shape = CircleShape,
-                    ),
-            )
+            // Check when selected (top-end)
+            if (isSelected) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = null,
+                    tint = miniScheme.primary,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .size(18.dp),
+                )
+            }
         }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            scheme.label,
+            style = MaterialTheme.typography.titleSmall,
+            color = if (isSelected) NyoraTokens.onSurfaceHigh else NyoraTokens.onSurfaceBody,
+            maxLines = 1,
+            modifier = Modifier.width(72.dp).padding(start = 2.dp),
+        )
     }
 }

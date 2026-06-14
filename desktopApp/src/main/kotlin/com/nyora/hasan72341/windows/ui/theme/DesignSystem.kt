@@ -85,8 +85,8 @@ object NyoraTokens {
     // @Composable registers a snapshot dependency. Swapping the palette via
     // [applyPalette] therefore recomposes every one of the ~397 call sites that read
     // `NyoraTokens.bg`, `NyoraTokens.surface1`, etc. — WITHOUT touching any call site.
-    // The defaults below are the AMOLED (pure-black) values, so first composition before
-    // any [applyPalette] still renders the original noir look.
+    // The defaults below are the neutral DARK values, so first composition before
+    // any [applyPalette] still renders the signature noir look.
 
     // Background + surface ladder.
     var bg: Color       by mutableStateOf(Color(0xFF000000))
@@ -129,7 +129,7 @@ object NyoraTokens {
 
 /**
  * A complete set of theme-reactive color values for [NyoraTokens]. Two curated instances
- * exist — [AmoledPalette] (pure-black) and [LightPalette] (paper) — and the active one is
+ * exist — [DarkPalette] (neutral dark) and [LightPalette] (paper) — and the active one is
  * pushed into [NyoraTokens] via [NyoraTokens.applyPalette] from `NyoraTheme`.
  *
  * Only the theme-DEPENDENT tokens live here; the accent hues (crimson/sakura/iris/mint)
@@ -154,11 +154,12 @@ data class NyoraPalette(
     val onSurfaceFaint: Color,
 )
 
-/** Pure-black AMOLED palette — the original signature noir look (and the token defaults). */
-val AmoledPalette = NyoraPalette(
-    bg             = Color(0xFF000000),
-    surface1       = Color(0xFF121216),
-    surface2       = Color(0xFF17171C),
+/** Tasteful neutral DARK palette — the signature noir look on a near-black surface ladder
+ *  (NOT pure black), and the token defaults. */
+val DarkPalette = NyoraPalette(
+    bg             = Color(0xFF0E0E12),
+    surface1       = Color(0xFF16161C),
+    surface2       = Color(0xFF1B1B22),
     surface3       = Color(0xFF1F1F26),
     glass1         = Color.White.copy(alpha = 0.03f),
     glass2         = Color.White.copy(alpha = 0.05f),
