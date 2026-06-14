@@ -611,7 +611,14 @@ private fun PagedReader(
         reverseLayout = reverseLayout,
         modifier = Modifier.fillMaxSize(),
         pageSpacing = 0.dp,
-        beyondViewportPageCount = 1
+        // Prefetch depth: decode the next/previous N pages off-screen so the
+        // reader never blocks on a single slow page. Coil fetches each page
+        // image independently and asynchronously through the engine /image
+        // proxy (gated by its own Semaphore(48)), so raising this fans out
+        // concurrent decodes ahead of the viewport rather than serialising
+        // them. Gated by the user's "Enable prefetching" pref: 2 when on
+        // (current ±2 pages), 0 when off (only the visible page decodes).
+        beyondViewportPageCount = if (state.prefetchEnabled) 2 else 0
     ) { index ->
         val isCurrent = index == pagerState.currentPage
         // The remembered gesture-state lambda must read the *latest* lifted zoom/pan, so we

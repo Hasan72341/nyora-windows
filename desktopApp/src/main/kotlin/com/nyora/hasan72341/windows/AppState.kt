@@ -52,10 +52,14 @@ import com.nyora.hasan72341.shared.repository.UpdateRow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.FormBody
@@ -431,18 +435,79 @@ class AppState(
 
     // ── Global search ─────────────────────────────────────────────────────────
 
+    // In-flight global-search coroutine; cancelled when a new query starts so a
+    // slow source from a previous query cannot append stale groups.
+    private var globalSearchJob: Job? = null
+
     fun globalSearch(query: String) {
         if (query.isBlank()) return
+        // Cancel any previous in-flight search so its slow sources cannot append
+        // stale groups after this query has reset the list.
+        globalSearchJob?.cancel()
         globalQuery = query
         globalResults = emptyList()
         globalSearching = true
         globalSearchError = null
-        scope.launch {
-            runCatching {
-                val encoded = URLEncoder.encode(query, "UTF-8")
-                val body = http.get("/search/global?q=$encoded&limit=5")
-                globalResults = http.parse<GlobalSearchResponse>(body).groups
-            }.onFailure { globalSearchError = it.message }
+
+        // STREAMING global search: instead of one /search/global REST call that
+        // does awaitAll() server-side (all-or-nothing — the UI showed a single
+        // spinner until EVERY source finished), fan out across installed sources
+        // here and append each source's GlobalSearchGroup the moment it returns.
+        // The GlobalSearchScreen list is keyed by sourceId, so each group renders
+        // as it arrives; per-source covers then load incrementally via the /image
+        // proxy + Coil (already concurrent, not gated behind the JS lock).
+        //
+        // Prerequisite: the GraalVM single-thread-confinement fix in
+        // JavaScriptExtensionService — different sources run their JS in parallel
+        // on their own owning threads, so this concurrent fan-out is now safe.
+        val targets = sources.filter { it.isInstalled }
+        if (targets.isEmpty()) {
+            globalSearching = false
+            return
+        }
+        // Bound parallelism (mirrors the proxy's gate pattern at a desktop-suited
+        // bound) so we don't open a connection per source all at once.
+        val gate = Semaphore(8)
+        val perSourceLimit = 5
+
+        globalSearchJob = scope.launch {
+            coroutineScope {
+                targets.forEach { src ->
+                    launch {
+                        val group = gate.withPermit {
+                            withContext(Dispatchers.IO) {
+                                runCatching {
+                                    // Per-source timeout (mirrors the server's 15s cap)
+                                    // so one hung source can't stall the rest.
+                                    withTimeoutOrNull(15_000L) {
+                                        val svc = facade.openExtension(src)
+                                        val page = svc.search(query, 1)
+                                        GlobalSearchGroup(
+                                            sourceId = src.id,
+                                            sourceName = src.name,
+                                            entries = page.entries.take(perSourceLimit),
+                                            error = null,
+                                        )
+                                    }
+                                }.getOrNull()
+                            }
+                        }
+                        // Append on the Main dispatcher (Compose snapshot state).
+                        // Only surface sources that returned hits, matching the old
+                        // server behaviour. Reassign the list (not in-place mutate)
+                        // so Compose observes the change.
+                        if (group != null && group.entries.isNotEmpty()) {
+                            globalResults = globalResults + group
+                        }
+                        // Drop the all-sources spinner as soon as the first source
+                        // settles, so results stream in rather than blocking on all.
+                        globalSearching = false
+                    }
+                }
+            }
+            // All sources settled. Ensure the spinner is cleared even if every
+            // source returned empty/failed; GlobalSearchScreen shows its "no
+            // results" empty state when the list is empty and the query non-blank.
             globalSearching = false
         }
     }
