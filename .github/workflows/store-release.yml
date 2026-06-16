@@ -88,6 +88,18 @@ jobs:
           "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "Version: $v"
 
+      # Bake the OAuth client secret into the app resources (gitignored) so the
+      # Store MSIX can complete Google sign-in on end-user machines.
+      - name: Bake OAuth secret
+        shell: pwsh
+        run: |
+          $dir = "desktopApp/src/main/resources"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          "GOOGLE_CLIENT_SECRET=$env:GOOGLE_CLIENT_SECRET" | Out-File -FilePath "$dir/nyora-oauth.properties" -Encoding ascii
+          if ([string]::IsNullOrWhiteSpace($env:GOOGLE_CLIENT_SECRET)) { Write-Host "::warning::GOOGLE_CLIENT_SECRET secret is empty — Google sign-in will not work in this build." }
+        env:
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+
       - name: Build ${{ matrix.arch }} MSIX
         shell: pwsh
         run: .\scripts\build-msix.ps1 -Architecture ${{ matrix.arch }} -Version ${{ steps.ver.outputs.version }}
