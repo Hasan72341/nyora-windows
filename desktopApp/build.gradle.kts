@@ -25,6 +25,10 @@ dependencies {
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.0.4")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // Embedded Chromium (KCEF/JCEF) driving the in-app Cloudflare solver's WebView.
+    // Pulls dev.datlag:kcef transitively. First run downloads a Chromium bundle.
+    implementation("io.github.kevinnzou:compose-webview-multiplatform:1.9.40")
+
     // JNA — Windows-native chrome: DWM dark title bar + Mica backdrop, and registry
     // reads for the system light/dark theme + accent colour. Runtime use is guarded
     // to Windows; harmless on the macOS/Linux build host.
