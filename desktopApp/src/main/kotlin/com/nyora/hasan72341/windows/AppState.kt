@@ -48,6 +48,10 @@ import com.nyora.hasan72341.shared.model.MangaPage
 import com.nyora.hasan72341.shared.model.MangaSource
 import com.nyora.hasan72341.shared.repository.BookmarkRow
 import com.nyora.hasan72341.shared.repository.HistoryRow
+import com.nyora.hasan72341.shared.scrobbling.ScrobblerManga
+import com.nyora.hasan72341.shared.scrobbling.ScrobblerOAuth
+import com.nyora.hasan72341.shared.scrobbling.ScrobblerRepository
+import com.nyora.hasan72341.shared.scrobbling.ScrobblerService
 import com.nyora.hasan72341.shared.repository.UpdateRow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -280,6 +284,25 @@ class AppState(
     // ── "For You" feed (AniList trending, DIRECT external API) ───────────────────
     var anilistFeed        by mutableStateOf<List<AniListFeedMedia>>(emptyList())
     var anilistFeedLoading by mutableStateOf(false)
+
+    // ── Multi-service trackers (AniList / MyAnimeList / Kitsu / Shikimori) ────────
+    // Real OAuth via the shared jvmMain scrobbler abstraction (TS-008/011): a
+    // loopback authorization-code flow for AniList/MAL/Shikimori and a password
+    // grant for Kitsu. Tokens persist to disk so logins survive an app restart.
+    private val scrobblerRepo by lazy { ScrobblerRepository.persistent() }
+    /** Slugs of the services the user is currently signed in to. */
+    var trackerAuthorized by mutableStateOf<Set<String>>(emptySet())
+        private set
+    /** Slug of the service whose login / search is in flight (null = idle). */
+    var trackerBusy by mutableStateOf<String?>(null)
+        private set
+    /** Per-service search results, keyed by service slug. */
+    var trackerResults by mutableStateOf<Map<String, List<ScrobblerManga>>>(emptyMap())
+        private set
+    /** The most recent consent URL, surfaced so the user can open it manually if
+     *  the browser opened off-screen (multi-display) or is unavailable. */
+    var trackerLoginUrl by mutableStateOf<String?>(null)
+        private set
 
     // ── Status banner ─────────────────────────────────────────────────────────
     var statusMessage by mutableStateOf<String?>(null)
@@ -1502,6 +1525,102 @@ class AppState(
         }
     }
 
+    // ── Multi-service trackers (AniList / MyAnimeList / Kitsu / Shikimori) ────────
+    //
+    // These drive the shared jvmMain scrobbler abstraction directly (in-process),
+    // giving every desktop variant (linux / windows) real OAuth login + search
+    // without the AniList-token-paste limitation above. NOTE: the loopback
+    // redirect URI (http://127.0.0.1:<port>/callback) may need per-service
+    // registration in each provider's OAuth app before consent succeeds — see
+    // ScrobblerOAuth's header comment.
+
+    /** Recompute which services are currently authorized. Cheap; safe to call often. */
+    fun refreshTrackerAuth() {
+        trackerAuthorized = ScrobblerService.entries
+            .filter { runCatching { scrobblerRepo[it].isAuthorized }.getOrDefault(false) }
+            .map { it.slug }
+            .toSet()
+    }
+
+    /**
+     * Run the shared loopback OAuth flow for an authorization-code service
+     * (AniList / MyAnimeList / Shikimori). Kitsu uses a password grant instead —
+     * see [trackerLoginWithPassword]. Suspends (in a coroutine) until the browser
+     * round-trips or the flow times out.
+     */
+    fun trackerLogin(service: ScrobblerService) {
+        if (service == ScrobblerService.KITSU) {
+            showStatus("Kitsu signs in with your email + password — use the fields below.")
+            return
+        }
+        if (trackerBusy != null) return
+        trackerBusy = service.slug
+        scope.launch {
+            runCatching {
+                ScrobblerOAuth.login(
+                    scrobblerRepo[service],
+                    openBrowser = { url ->
+                        trackerLoginUrl = url
+                        ScrobblerOAuth.openInSystemBrowser(url)
+                    },
+                )
+            }.onSuccess {
+                showStatus("Signed in to ${service.title}.")
+            }.onFailure {
+                showStatus("${service.title} sign-in failed: ${it.message}")
+            }
+            trackerLoginUrl = null
+            trackerBusy = null
+            refreshTrackerAuth()
+        }
+    }
+
+    /** Kitsu resource-owner password login (Kitsu has no OAuth consent page). */
+    fun trackerLoginWithPassword(service: ScrobblerService, username: String, password: String) {
+        if (username.isBlank() || password.isBlank()) {
+            showStatus("Enter your ${service.title} email and password.")
+            return
+        }
+        if (trackerBusy != null) return
+        trackerBusy = service.slug
+        scope.launch {
+            runCatching {
+                ScrobblerOAuth.loginWithPassword(scrobblerRepo[service], username, password)
+            }.onSuccess {
+                showStatus("Signed in to ${service.title}.")
+            }.onFailure {
+                showStatus("${service.title} sign-in failed: ${it.message}")
+            }
+            trackerBusy = null
+            refreshTrackerAuth()
+        }
+    }
+
+    /** Sign out of a single tracker service (clears its stored tokens). */
+    fun trackerLogout(service: ScrobblerService) {
+        runCatching { scrobblerRepo[service].logout() }
+        trackerResults = trackerResults - service.slug
+        showStatus("Signed out of ${service.title}.")
+        refreshTrackerAuth()
+    }
+
+    /** Search a service's catalogue (requires an authorized session). */
+    fun trackerSearch(service: ScrobblerService, query: String) {
+        if (query.isBlank()) return
+        if (trackerBusy != null) return
+        trackerBusy = service.slug
+        scope.launch {
+            runCatching {
+                scrobblerRepo[service].search(query)
+            }.onSuccess { results ->
+                trackerResults = trackerResults + (service.slug to results)
+            }.onFailure {
+                showStatus("${service.title} search failed: ${it.message}")
+            }
+            trackerBusy = null
+        }
+    }
+
     // ── "For You" feed (AniList trending) ────────────────────────────────────────
     //
     // Mirrors nyora-android's AnilistRepository: a DIRECT POST to the public
@@ -1550,20 +1669,24 @@ class AppState(
         }
     }
 
-    fun cloudSignInWithGoogle() {
+    fun cloudSignIn(email: String, password: String) = cloudAuth("/supabase/signin", email, password)
+
+    fun cloudRegister(email: String, password: String) = cloudAuth("/supabase/register", email, password)
+
+    private fun cloudAuth(path: String, email: String, password: String) {
         if (cloudSyncBusy) return
+        val em = email.trim()
+        if (em.isEmpty() || password.isEmpty()) { showStatus("Enter your email and password"); return }
         scope.launch {
             cloudSyncBusy = true
             runCatching {
                 val status = fetchCloudSyncStatus()
                 cloudSyncStatus = status
-                if (!status.isConfigured) error("Supabase is not configured.")
+                if (!status.isConfigured) error("Sync server is not configured.")
 
-                val desktopClientId = status.googleDesktopClientId.ifBlank { DESKTOP_GOOGLE_CLIENT_ID }
-                showStatus("Opening Google sign-in...")
-                val idToken = requestGoogleIdToken(desktopClientId)
-                val signInRaw = http.post("/supabase/signin?idToken=${URLEncoder.encode(idToken, "UTF-8")}")
-                requireSupabaseOk(signInRaw, "Supabase sign-in failed")
+                showStatus("Signing in...")
+                val q = "?email=${URLEncoder.encode(em, "UTF-8")}&password=${URLEncoder.encode(password, "UTF-8")}"
+                requireSupabaseOk(http.post("$path$q"), "Sign-in failed")
 
                 val hasLocalData = prefsJson.decodeFromString<SupabaseLocalDataResponse>(
                     http.get("/supabase/has-local-data"),
@@ -1578,7 +1701,7 @@ class AppState(
                 refreshLibrary()
                 cloudSyncStatus = fetchCloudSyncStatus()
                 showStatus("Cloud sync ready.")
-            }.onFailure { showStatus("Google sign-in failed: ${it.message}") }
+            }.onFailure { showStatus("Sign-in failed: ${it.message}") }
             cloudSyncBusy = false
         }
     }

@@ -686,12 +686,20 @@ private fun CloudSyncSection(state: AppState) {
                     Text("Sign Out")
                 }
             } else {
-                Button(onClick = { state.cloudSignInWithGoogle() }, enabled = !busy && status?.isConfigured != false) {
-                    if (!busy) {
-                        Image(GoogleLogo, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(8.dp))
+                var email by remember { mutableStateOf("") }
+                var password by remember { mutableStateOf("") }
+                OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email") }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("Password") }, singleLine = true, enabled = !busy, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                Row {
+                    Button(onClick = { state.cloudSignIn(email, password) }, enabled = !busy && status?.isConfigured != false) {
+                        Text(if (busy) "Signing in..." else "Sign in")
                     }
-                    Text(if (busy) "Opening..." else "Sign in with Google")
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(onClick = { state.cloudRegister(email, password) }, enabled = !busy && status?.isConfigured != false) {
+                        Text("Create account")
+                    }
                 }
             }
         }

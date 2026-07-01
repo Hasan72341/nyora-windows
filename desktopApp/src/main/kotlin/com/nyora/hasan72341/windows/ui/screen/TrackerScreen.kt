@@ -4,16 +4,14 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.automirrored.filled.Login
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -25,25 +23,31 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nyora.hasan72341.shared.scrobbling.ScrobblerManga
+import com.nyora.hasan72341.shared.scrobbling.ScrobblerService
 import com.nyora.windows.AppState
-import com.nyora.windows.bridge.AniListMediaDto
 import com.nyora.windows.ui.theme.*
 
+/**
+ * Multi-service tracker settings (TS-014). Generalized from the former
+ * AniList-token-paste panel to every service the shared scrobbler abstraction
+ * supports — AniList, MyAnimeList, Kitsu and Shikimori — each with a real OAuth
+ * (or, for Kitsu, password) login and per-service search. Shared verbatim with
+ * the Windows desktop variant.
+ */
 @Composable
 fun TrackerScreen(state: AppState, onBack: () -> Unit) {
     val accent = LocalNyoraAccent.current.color
-    var tokenInput by remember { mutableStateOf(state.anilistToken) }
-    var showToken by remember { mutableStateOf(false) }
 
-    val isLinked = tokenInput.isNotBlank()
-    val mediaList = state.anilistResult?.data?.Page?.media ?: emptyList()
+    // Recompute authorized services once when the screen opens.
+    LaunchedEffect(Unit) { state.refreshTrackerAuth() }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(32.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
 
         // ── Top bar ──────────────────────────────────────────────────────────
@@ -52,8 +56,7 @@ fun TrackerScreen(state: AppState, onBack: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Surface(
-                modifier = Modifier
-                    .size(48.dp),
+                modifier = Modifier.size(48.dp),
                 color = NyoraTokens.surface1,
                 shape = RoundedCornerShape(12.dp),
             ) {
@@ -68,190 +71,22 @@ fun TrackerScreen(state: AppState, onBack: () -> Unit) {
 
             Column {
                 SectionHeader(
-                    title = "AniList",
-                    subtitle = "Track your progress",
+                    title = "Trackers",
+                    subtitle = "Sync your progress across services",
                 )
             }
 
             Spacer(Modifier.weight(1f))
 
-            // Linked status tag — mint if token set, muted otherwise
             SystemTag(
-                text = if (isLinked) "Linked" else "Not linked",
-                color = if (isLinked) NyoraTokens.mint else NyoraTokens.onSurfaceFaint,
+                text = "${state.trackerAuthorized.size}/${ScrobblerService.entries.size} linked",
+                color = if (state.trackerAuthorized.isNotEmpty()) NyoraTokens.mint else NyoraTokens.onSurfaceFaint,
             )
         }
 
-        // ── Token entry glass panel ──────────────────────────────────────────
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .glassCard(shape = RoundedCornerShape(20.dp), fill = NyoraTokens.surface1)
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Icon(
-                    Icons.Default.Link,
-                    contentDescription = null,
-                    tint = accent,
-                    modifier = Modifier.size(20.dp),
-                )
-                Text(
-                    text = "Access Token",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = NyoraTokens.onSurfaceHigh,
-                )
-            }
-
-            // Masked OutlinedTextField
-            OutlinedTextField(
-                value = tokenInput,
-                onValueChange = { tokenInput = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("AniList OAuth access token") },
-                placeholder = { Text("Paste your bearer token here…", color = NyoraTokens.onSurfaceFaint) },
-                visualTransformation = if (showToken) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                singleLine = true,
-                trailingIcon = {
-                    TextButton(
-                        onClick = { showToken = !showToken },
-                        contentPadding = PaddingValues(horizontal = 8.dp),
-                    ) {
-                        Text(
-                            text = if (showToken) "Hide" else "Show",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = accent,
-                        )
-                    }
-                },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = accent,
-                    unfocusedBorderColor = NyoraTokens.hairlineFaint,
-                    focusedLabelColor = accent,
-                    cursorColor = accent,
-                ),
-                shape = RoundedCornerShape(14.dp),
-            )
-
-            // Action buttons row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Button(
-                    onClick = { state.setAnilistToken(tokenInput) },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = accent),
-                ) {
-                    Icon(
-                        Icons.Default.Save,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text("Save Token", fontWeight = FontWeight.Bold)
-                }
-
-                OutlinedButton(
-                    onClick = { state.anilistSearch("Naruto") },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.weight(1f),
-                    enabled = isLinked && !state.anilistLoading,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        if (isLinked) accent.copy(alpha = 0.55f) else NyoraTokens.hairlineFaint,
-                    ),
-                ) {
-                    if (state.anilistLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                            color = accent,
-                        )
-                    } else {
-                        Icon(
-                            Icons.Default.Search,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = if (isLinked) accent else NyoraTokens.onSurfaceMuted,
-                        )
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "Test connection",
-                        color = if (isLinked) accent else NyoraTokens.onSurfaceMuted,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
-
-            // Inline note about OAuth + auto-scrobble
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = NyoraTokens.surface1,
-                shape = RoundedCornerShape(12.dp),
-            ) {
-                Text(
-                    text = "Full OAuth web flow is planned for a future release. " +
-                            "For now, paste an OAuth access token obtained from anilist.co/settings/developer. " +
-                            "Once a token is saved, per-chapter scrobble fires automatically as you read.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NyoraTokens.onSurfaceMuted,
-                    lineHeight = 18.sp,
-                    modifier = Modifier.padding(12.dp),
-                )
-            }
-        }
-
-        // ── Test results section ─────────────────────────────────────────────
-        AnimatedVisibility(
-            visible = state.anilistLoading || mediaList.isNotEmpty(),
-            enter = fadeIn(),
-            exit = fadeOut(),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    SectionHeader(
-                        title = if (state.anilistLoading) "Searching…" else "Results",
-                        subtitle = if (!state.anilistLoading && mediaList.isNotEmpty())
-                            "${mediaList.size} title${if (mediaList.size != 1) "s" else ""} found"
-                        else null,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (state.anilistLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            strokeWidth = 2.5.dp,
-                            color = accent,
-                        )
-                    }
-                }
-
-                if (!state.anilistLoading) {
-                    // Use a fixed-height lazy column so the outer scroll still works
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 520.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        contentPadding = PaddingValues(bottom = 8.dp),
-                    ) {
-                        items(mediaList) { media ->
-                            AniListMediaRow(media = media, state = state)
-                        }
-                    }
-                }
-            }
+        // ── A card per service ────────────────────────────────────────────────
+        ScrobblerService.entries.forEach { service ->
+            ServiceCard(service = service, state = state, accent = accent)
         }
 
         Spacer(Modifier.height(48.dp))
@@ -261,10 +96,180 @@ fun TrackerScreen(state: AppState, onBack: () -> Unit) {
 // ----- Private composables -------------------------------------------------
 
 @Composable
-private fun AniListMediaRow(media: AniListMediaDto, state: AppState) {
-    val accent = LocalNyoraAccent.current.color
-    val displayTitle = media.title.english ?: media.title.romaji ?: media.title.native ?: "Unknown"
+private fun ServiceCard(service: ScrobblerService, state: AppState, accent: androidx.compose.ui.graphics.Color) {
+    val linked = service.slug in state.trackerAuthorized
+    val busy = state.trackerBusy == service.slug
+    val results = state.trackerResults[service.slug].orEmpty()
 
+    // Per-card local input state.
+    var query by remember(service) { mutableStateOf("") }
+    var email by remember(service) { mutableStateOf("") }
+    var password by remember(service) { mutableStateOf("") }
+    var showPassword by remember(service) { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassCard(shape = RoundedCornerShape(20.dp), fill = NyoraTokens.surface1)
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        // Header row: name + linked tag.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = service.title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = NyoraTokens.onSurfaceHigh,
+                modifier = Modifier.weight(1f),
+            )
+            if (busy) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = accent,
+                )
+                Spacer(Modifier.width(10.dp))
+            }
+            SystemTag(
+                text = if (linked) "Linked" else "Not linked",
+                color = if (linked) NyoraTokens.mint else NyoraTokens.onSurfaceFaint,
+            )
+        }
+
+        if (!linked) {
+            // ── Login affordance ──────────────────────────────────────────────
+            if (service == ScrobblerService.KITSU) {
+                // Kitsu = resource-owner password grant (no consent page).
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Kitsu email") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    colors = trackerFieldColors(accent),
+                    shape = RoundedCornerShape(14.dp),
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Kitsu password") },
+                    singleLine = true,
+                    visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    trailingIcon = {
+                        TextButton(
+                            onClick = { showPassword = !showPassword },
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                        ) {
+                            Text(
+                                text = if (showPassword) "Hide" else "Show",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = accent,
+                            )
+                        }
+                    },
+                    colors = trackerFieldColors(accent),
+                    shape = RoundedCornerShape(14.dp),
+                )
+                Button(
+                    onClick = { state.trackerLoginWithPassword(service, email, password) },
+                    enabled = !busy,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = accent),
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Sign in", fontWeight = FontWeight.Bold)
+                }
+            } else {
+                Text(
+                    text = "Sign in opens ${service.title} in your browser to authorize Nyora.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NyoraTokens.onSurfaceMuted,
+                    lineHeight = 18.sp,
+                )
+                Button(
+                    onClick = { state.trackerLogin(service) },
+                    enabled = !busy,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = accent),
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Log in with ${service.title}", fontWeight = FontWeight.Bold)
+                }
+                // Surface the consent URL in case the browser opened off-screen.
+                state.trackerLoginUrl?.takeIf { busy }?.let { url ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = NyoraTokens.surface1,
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Text(
+                            text = "If the browser didn't open, visit:\n$url",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NyoraTokens.onSurfaceMuted,
+                            lineHeight = 18.sp,
+                            modifier = Modifier.padding(12.dp),
+                        )
+                    }
+                }
+            }
+        } else {
+            // ── Signed-in: search + sign-out ──────────────────────────────────
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.weight(1f),
+                    label = { Text("Search ${service.title}") },
+                    singleLine = true,
+                    colors = trackerFieldColors(accent),
+                    shape = RoundedCornerShape(14.dp),
+                )
+                Button(
+                    onClick = { state.trackerSearch(service, query) },
+                    enabled = !busy && query.isNotBlank(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = accent),
+                ) {
+                    Icon(Icons.Default.Search, contentDescription = "Search", modifier = Modifier.size(18.dp))
+                }
+                OutlinedButton(
+                    onClick = { state.trackerLogout(service) },
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.55f)),
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, modifier = Modifier.size(18.dp), tint = accent)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Sign out", color = accent, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            AnimatedVisibility(visible = results.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SectionHeader(
+                        title = "Results",
+                        subtitle = "${results.size} title${if (results.size != 1) "s" else ""} found",
+                    )
+                    results.take(20).forEach { manga ->
+                        ScrobblerMangaRow(manga = manga, accent = accent)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScrobblerMangaRow(manga: ScrobblerManga, accent: androidx.compose.ui.graphics.Color) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -273,70 +278,54 @@ private fun AniListMediaRow(media: AniListMediaDto, state: AppState) {
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Cover thumbnail
-        AnimeAsyncImage(
-            model = media.coverImage.large,
-            contentDescription = displayTitle,
-            modifier = Modifier
-                .width(56.dp)
-                .aspectRatio(0.72f),
-            shape = RoundedCornerShape(10.dp),
-        )
-
-        // Title + metadata
+        manga.cover?.let { cover ->
+            AnimeAsyncImage(
+                model = cover,
+                contentDescription = manga.name,
+                modifier = Modifier
+                    .width(56.dp)
+                    .aspectRatio(0.72f),
+                shape = RoundedCornerShape(10.dp),
+            )
+        }
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
-                text = displayTitle,
+                text = manga.name,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = NyoraTokens.onSurfaceHigh,
                 maxLines = 2,
             )
-            if (media.title.english != null && media.title.romaji != null) {
+            manga.altName?.takeIf { it.isNotBlank() && it != manga.name }?.let { alt ->
                 Text(
-                    text = media.title.romaji,
+                    text = alt,
                     style = MaterialTheme.typography.bodySmall,
                     color = NyoraTokens.onSurfaceMuted,
                     maxLines = 1,
                 )
             }
         }
-
-        // Score + chapters badges
-        Column(
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            media.averageScore?.let { score ->
-                Surface(
-                    color = accent.copy(alpha = 0.18f),
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Text(
-                        text = "${score / 10.0}",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Black,
-                        color = accent,
-                    )
-                }
-            }
-            media.chapters?.let { ch ->
-                Surface(
-                    color = NyoraTokens.surface1,
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Text(
-                        text = "$ch ch",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = NyoraTokens.onSurfaceMuted,
-                    )
-                }
+        if (manga.isBestMatch) {
+            Surface(color = accent.copy(alpha = 0.18f), shape = RoundedCornerShape(8.dp)) {
+                Text(
+                    text = "Best match",
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Black,
+                    color = accent,
+                )
             }
         }
     }
 }
+
+@Composable
+private fun trackerFieldColors(accent: androidx.compose.ui.graphics.Color) = OutlinedTextFieldDefaults.colors(
+    focusedBorderColor = accent,
+    unfocusedBorderColor = NyoraTokens.hairlineFaint,
+    focusedLabelColor = accent,
+    cursorColor = accent,
+)

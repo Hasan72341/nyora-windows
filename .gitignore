@@ -10,3 +10,6 @@ local.properties
 # Build-time baked OAuth secret (never commit)
 nyora-oauth.properties
 desktopApp/src/main/resources/nyora-oauth.properties
+
+# Packaged MSIX build output
+msixbundle-out/
