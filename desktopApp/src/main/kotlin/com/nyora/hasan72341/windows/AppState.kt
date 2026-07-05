@@ -98,6 +98,9 @@ enum class ExploreMode { POPULAR, LATEST, SEARCH }
 class AppState(
     val facade: NyoraFacade,
     val imageBaseUrl: String,
+    // Shared with the local helper server: keeps its source/content endpoints
+    // gated in lock-step with repositoryActive (airtight — even direct probes).
+    private val sourcesGate: java.util.concurrent.atomic.AtomicBoolean? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     val http = NyoraHttpClient(imageBaseUrl)
@@ -401,6 +404,7 @@ class AppState(
                 repositorySourceIds = ids
                 repositoryUrl = trimmed
                 repositoryActive = true
+                sourcesGate?.set(true)   // open the helper's source endpoints
                 savePrefs()
                 loadSources()
                 loadCatalog()
@@ -425,6 +429,7 @@ class AppState(
     /** Remove the repository (sources go inactive; the link can be re-added). */
     fun removeSourceRepository() {
         repositoryActive = false
+        sourcesGate?.set(false)   // close the helper's source endpoints
         repositorySourceIds = emptyList()
         repositoryUrl = ""
         sources = emptyList()
@@ -1429,6 +1434,7 @@ class AppState(
             repositoryActive     = dto.repositoryActive
             repositoryUrl        = dto.repositoryUrl
             repositorySourceIds  = dto.repositorySourceIds
+            sourcesGate?.set(repositoryActive)
         }
     }
 

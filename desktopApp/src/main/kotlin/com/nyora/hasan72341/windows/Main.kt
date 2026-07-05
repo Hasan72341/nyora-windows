@@ -54,6 +54,10 @@ fun main() {
 
     // Start the REST server in-process. The image proxy endpoint requires it,
     // and keeping the same HTTP surface means future CLI / remote clients work too.
+    // Source availability gate: the local helper serves NO sources/content until
+    // a signed source-repository index is added (see AppState.addSourceRepository).
+    // Starts closed so a fresh install / direct localhost probe exposes nothing.
+    val sourcesGate = java.util.concurrent.atomic.AtomicBoolean(false)
     val server = NyoraRestServer(
         facade = facade,
         catalog = SourceCatalogClient(networkConfig = networkConfig),
@@ -61,10 +65,11 @@ fun main() {
         pageLoader = PageImageLoader(networkConfig = networkConfig),
         downloads = boot.downloads,
         networkConfig = networkConfig,
+        sourcesEnabled = { sourcesGate.get() },
     )
     val baseUrl = server.start()
 
-    val appState = AppState(facade = facade, imageBaseUrl = baseUrl)
+    val appState = AppState(facade = facade, imageBaseUrl = baseUrl, sourcesGate = sourcesGate)
 
     Runtime.getRuntime().addShutdownHook(Thread { server.stop() })
 
