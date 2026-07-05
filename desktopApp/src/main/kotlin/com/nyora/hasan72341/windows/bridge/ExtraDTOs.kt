@@ -293,3 +293,89 @@ data class AniListFeedData(
 data class AniListFeedResponse(
     val data: AniListFeedData = AniListFeedData(),
 )
+
+// ----- MangaBaka discovery feed (DIRECT to https://api.mangabaka.dev) -----
+// AniList disabled its public API, so the "For You" / Discover feed now comes
+// from the MangaBaka series database. Its API is search-first (there is NO
+// trending/sort endpoint), so we fetch a broad manga search and rank the
+// results client-side by global popularity. Response shape:
+//   { status, pagination, data:[ series ] }
+// A series carries the nested cover/popularity objects below. We map each one
+// onto the existing [AniListFeedMedia] shape so the Suggestions UI is unchanged.
+@Serializable
+data class MangaBakaImage(val x1: String? = null)
+
+@Serializable
+data class MangaBakaRaw(val url: String? = null)
+
+@Serializable
+data class MangaBakaCover(
+    val x350: MangaBakaImage? = null,
+    val x250: MangaBakaImage? = null,
+    val raw: MangaBakaRaw? = null,
+)
+
+@Serializable
+data class MangaBakaPopularityGlobal(val current: Int = 0)
+
+@Serializable
+data class MangaBakaPopularity(val global: MangaBakaPopularityGlobal? = null)
+
+@Serializable
+data class MangaBakaSeries(
+    val title: String? = null,
+    val romanized_title: String? = null,
+    val native_title: String? = null,
+    val cover: MangaBakaCover? = null,
+    val genres: List<String> = emptyList(),
+    // MangaBaka ratings are 0..100 (or null). Encoded as a JSON number that may
+    // arrive as an int or a float, so decode as Double and round on the way out.
+    val rating: Double? = null,
+    val popularity: MangaBakaPopularity? = null,
+    val type: String? = null,
+    val state: String? = null,
+    val description: String? = null,
+)
+
+@Serializable
+data class MangaBakaSearchResponse(
+    val data: List<MangaBakaSeries> = emptyList(),
+)
+
+/** Sortable global-popularity number pulled out of MangaBaka's nested shape. */
+fun MangaBakaSeries.mbPopularity(): Int = popularity?.global?.current ?: 0
+
+/** Best available cover: prefer CDN thumbnails, fall back to the raw image. */
+fun MangaBakaSeries.mbCover(): String =
+    cover?.x350?.x1 ?: cover?.x250?.x1 ?: cover?.raw?.url ?: ""
+
+/** "school_life" -> "School Life" */
+private fun prettyGenre(g: String): String =
+    g.split('_').joinToString(" ") { part ->
+        part.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+    }
+
+/**
+ * A series is worth showing only if it has a cover and a real title — the DB is
+ * full of 1–2 char placeholder / merged entries we don't want on the grid.
+ */
+fun MangaBakaSeries.mbUsable(): Boolean =
+    state != "merged" && mbCover().isNotEmpty() && (title ?: "").trim().length >= 3
+
+/** Map a MangaBaka series onto the AniList-media shape the UI already renders. */
+fun MangaBakaSeries.toFeedMedia(): AniListFeedMedia {
+    val displayTitle = title ?: romanized_title ?: native_title ?: "Untitled"
+    val coverUrl = mbCover()
+    return AniListFeedMedia(
+        id = 0,
+        title = AniListFeedTitle(
+            romaji = romanized_title ?: displayTitle,
+            english = displayTitle,
+            native = native_title,
+        ),
+        coverImage = AniListFeedCover(extraLarge = coverUrl, large = coverUrl),
+        description = description,
+        averageScore = rating?.let { Math.round(it).toInt() },
+        genres = genres.map { prettyGenre(it) },
+    )
+}

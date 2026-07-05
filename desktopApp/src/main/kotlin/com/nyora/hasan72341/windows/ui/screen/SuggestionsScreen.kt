@@ -75,7 +75,7 @@ fun SuggestionsScreen(state: AppState) {
         ) {
             SectionHeader(
                 title = "Discover",
-                subtitle = "Trending on AniList",
+                subtitle = "Popular on MangaBaka",
                 modifier = Modifier.padding(bottom = 0.dp),
             )
         }
@@ -311,7 +311,7 @@ private fun EmptySuggestions() {
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = "We couldn't reach AniList just now — check your connection and try again.",
+                    text = "We couldn't reach MangaBaka just now — check your connection and try again.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = NyoraTokens.onSurfaceMuted,
                 )
