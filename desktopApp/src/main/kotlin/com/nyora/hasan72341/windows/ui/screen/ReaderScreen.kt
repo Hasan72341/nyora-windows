@@ -1033,9 +1033,25 @@ private fun goAdjacentChapter(state: AppState, direction: Int) {
     if (chapters.isEmpty()) return
     val idx = chapters.indexOfFirst { it.id == current.id }
     if (idx < 0) return
-    val targetIdx = idx + direction
+    // direction: +1 = next (higher-numbered) chapter, -1 = previous. The source
+    // array order varies (oldest-first vs newest-first), so map to an index step
+    // via the detected ordering rather than assuming +1 is always "next".
+    val targetIdx = idx + direction * chapterNextDelta(chapters)
     if (targetIdx !in chapters.indices) return
     state.openChapter(manga, chapters[targetIdx])
+}
+
+/**
+ * Index step that moves to the NEXT (higher-numbered) chapter. Chapter arrays are
+ * oldest-first on some sources (MangaDex) and newest-first on others (many
+ * scanlation sites), so we detect the ordering from chapter numbers: ascending
+ * (first < last) ⇒ +1, descending ⇒ -1. Falls back to +1 when indistinguishable.
+ */
+internal fun chapterNextDelta(chapters: List<MangaChapter>): Int {
+    if (chapters.size < 2) return 1
+    val a = chapters.first().number
+    val b = chapters.last().number
+    return if (a != b) { if (a < b) 1 else -1 } else 1
 }
 
 // =======================================================================================

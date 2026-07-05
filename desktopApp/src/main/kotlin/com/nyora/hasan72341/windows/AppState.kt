@@ -733,8 +733,15 @@ class AppState(
         val src = activeSource ?: sourceFor(manga) ?: return
         val chapters = manga.chapters
         val idx = chapters.indexOfFirst { it.id == current.id }
-        if (idx < 0 || idx + 1 >= chapters.size) return
-        val next = chapters[idx + 1]
+        if (idx < 0) return
+        // "Next" respects the source's chapter ordering (see chapterNextDelta).
+        val step = if (chapters.size < 2) 1 else {
+            val a = chapters.first().number; val b = chapters.last().number
+            if (a != b && a >= b) -1 else 1
+        }
+        val nextIdx = idx + step
+        if (nextIdx !in chapters.indices) return
+        val next = chapters[nextIdx]
         scope.launch(Dispatchers.IO) {
             runCatching {
                 if (facade.cachedPages(next.url) == null) {
