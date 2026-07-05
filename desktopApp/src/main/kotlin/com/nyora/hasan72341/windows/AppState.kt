@@ -123,6 +123,12 @@ class AppState(
     // sources exist. An unsigned/forged index is rejected.
     private val INDEX_PUBLIC_KEY =
         "MCowBQYDK2VwAyEA8pus7Do8tcNQXYqb+sZQZh2XJ70Iz3Zi/iE25USROT0="
+    // Remote master switch (OTA). On launch the app fetches this signed config; if
+    // it says enabled, sources auto-activate for everyone — so the build can ship
+    // with sources off (demo only) for Store review and be enabled remotely later
+    // just by re-signing + updating this file. Signature verified with the same key.
+    private val REMOTE_CONFIG_URL =
+        "https://hasan72341.github.io/nyora-windows-parser/config.json"
     var repositoryActive by mutableStateOf(false)
         private set
     var repositoryUrl    by mutableStateOf("")
@@ -297,6 +303,11 @@ class AppState(
      *  or taps "Continue as guest"), tracked by a marker file under the config dir. */
     var showWelcome by mutableStateOf(!File(configDir(), ".onboarded").exists())
 
+    /** When true, the content & language preferences step is re-opened as an
+     *  overlay (from Settings ▸ "Re-run setup") so the user can re-pick languages /
+     *  the 18+ preference and reseed their sources after onboarding. */
+    var showPreferences by mutableStateOf(false)
+
     // Native window placement — restored on launch, persisted on change so the app
     // remembers its size + maximized/snapped state like a native Windows app.
     private val winProps = readWindowProps()
@@ -339,6 +350,52 @@ class AppState(
         loadPrefs()
         loadSources()
         refreshLibrary()
+        checkRemoteActivation()
+    }
+
+    /**
+     * Fetch the signed remote config and auto-activate sources if it says enabled.
+     * Lets a shipped build stay locked (demo only) for Store review, then be enabled
+     * for everyone later just by re-signing + updating config.json — no app update.
+     * The config is Ed25519-verified against [INDEX_PUBLIC_KEY]; a missing / invalid
+     * / disabled config leaves the app locked. Never force-disables an already-active
+     * (manually-added) repository.
+     */
+    private fun checkRemoteActivation() {
+        if (repositoryActive) return
+        scope.launch {
+            val ids: List<String>? = withContext(Dispatchers.IO) {
+                runCatching {
+                    val conn = java.net.URI(REMOTE_CONFIG_URL).toURL().openConnection() as java.net.HttpURLConnection
+                    conn.connectTimeout = 8_000
+                    conn.readTimeout = 8_000
+                    conn.setRequestProperty("Accept", "application/json")
+                    val text = conn.inputStream.bufferedReader().use { it.readText() }
+                    val cfg = prefsJson.parseToJsonElement(text).jsonObject
+                    val dataB64 = cfg["data"]?.jsonPrimitive?.content ?: return@runCatching null
+                    val sigB64  = cfg["sig"]?.jsonPrimitive?.content ?: return@runCatching null
+                    val payloadBytes = java.util.Base64.getDecoder().decode(dataB64)
+                    if (!verifyIndexSignature(payloadBytes, sigB64)) return@runCatching null
+                    val payload = prefsJson.parseToJsonElement(String(payloadBytes, Charsets.UTF_8)).jsonObject
+                    val enabled = payload["enabled"]?.jsonPrimitive?.let {
+                        it.content == "true" || it.content == "1"
+                    } == true
+                    if (!enabled) return@runCatching null
+                    (payload["sources"] as? kotlinx.serialization.json.JsonArray)
+                        ?.mapNotNull { it.jsonPrimitive.content }
+                        ?.takeIf { it.isNotEmpty() } ?: listOf("*")
+                }.getOrNull()
+            }
+            if (ids != null && !repositoryActive) {
+                repositorySourceIds = ids
+                repositoryUrl = REMOTE_CONFIG_URL
+                repositoryActive = true
+                sourcesGate?.set(true)
+                savePrefs()
+                loadSources()
+                loadCatalog()
+            }
+        }
     }
 
     // ── Source management ─────────────────────────────────────────────────────
@@ -465,6 +522,32 @@ class AppState(
                 }
                 showStatus("Uninstalled.")
             }.onFailure { showStatus("Uninstall failed: ${it.message}") }
+        }
+    }
+
+    /**
+     * Seed the installed shelf from the onboarding / preferences step: install
+     * every catalog [ids] entry that isn't already installed, in one coroutine,
+     * then refresh once. Best-effort — a failed install is skipped so one bad
+     * source can't abort the whole seed. Never leaves the shelf empty because the
+     * caller falls back to the 18+-only set when the language filter matches none.
+     */
+    fun seedSources(ids: List<String>) {
+        if (ids.isEmpty()) return
+        scope.launch {
+            val alreadyInstalled = sources.filter { it.isInstalled }.map { it.id }.toSet()
+            val todo = ids.filter { it !in alreadyInstalled }
+            withContext(Dispatchers.IO) {
+                todo.forEach { id ->
+                    runCatching { http.post("/sources/install?id=${URLEncoder.encode(id, "UTF-8")}") }
+                }
+            }
+            loadSources()
+            val want = ids.toSet()
+            catalogEntries = catalogEntries.map {
+                if (it.id in want) it.copy(isInstalled = true) else it
+            }
+            if (todo.isNotEmpty()) showStatus("Added ${todo.size} source${if (todo.size == 1) "" else "s"}.")
         }
     }
 
