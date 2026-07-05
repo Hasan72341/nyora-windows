@@ -119,6 +119,13 @@ configurations.all {
                 !requested.name.startsWith("material-icons")) {
                 useVersion("1.8.2")
             }
+            // JCEF (via compose-webview-multiplatform → KCEF) requests jogamp
+            // gluegen-rt/jogl-all 2.5.0, which is ONLY on jogamp.org — and that
+            // server is frequently down (build can't resolve it). Pin to 2.3.2,
+            // which is on Maven Central. The app never calls JOGL directly.
+            if (requested.group == "org.jogamp.gluegen" || requested.group == "org.jogamp.jogl") {
+                useVersion("2.3.2")
+            }
         }
     }
 }

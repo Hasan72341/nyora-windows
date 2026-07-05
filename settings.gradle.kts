@@ -12,9 +12,6 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         maven { url = uri("https://jitpack.io") }
-        // Required by compose-webview-multiplatform → KCEF → JCEF, which pull
-        // org.jogamp gluegen-rt / jogl-all 2.5.0 (only hosted here, not Central).
-        maven { url = uri("https://jogamp.org/deployment/maven/") }
     }
 }
 
