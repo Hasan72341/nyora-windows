@@ -2,6 +2,8 @@ package com.nyora.windows.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -9,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -18,6 +21,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -34,6 +38,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nyora.windows.AppState
+import com.nyora.windows.bridge.CatalogEntry
 import com.nyora.windows.ui.theme.LocalNyoraAccent
 import com.nyora.windows.ui.theme.NyoraTokens
 import com.nyora.windows.ui.theme.glassCard
@@ -75,12 +80,47 @@ fun WelcomeScreen(state: AppState) {
         )
 
         when (stage) {
-            "prefs" -> PreferencesStage(state, accent)
+            "prefs" -> PreferencesStage(state, accent, onDone = { state.finishOnboarding() })
             else -> AuthStage(
                 state = state, accent = accent, busy = busy,
                 onGuest = { stage = "prefs" },
             )
         }
+    }
+}
+
+/**
+ * Re-run of the content & language preferences step, opened from Settings as a
+ * full-screen overlay (see [AppState.showPreferences]). Reuses [PreferencesStage]
+ * with re-run copy; "Save & apply" reseeds sources and dismisses. A top "Close"
+ * bails out without changing anything.
+ */
+@Composable
+fun PreferencesOverlay(state: AppState) {
+    val accent = LocalNyoraAccent.current.color
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFF0B0707), NyoraTokens.bg, Color.Black))),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier.align(Alignment.TopCenter).fillMaxWidth().height(360.dp)
+                .background(Brush.verticalGradient(listOf(accent.copy(alpha = 0.13f), Color.Transparent))),
+        )
+        TextButton(
+            onClick = { state.showPreferences = false },
+            modifier = Modifier.align(Alignment.TopEnd).padding(20.dp),
+        ) { Text("Close", color = NyoraTokens.onSurfaceMuted, fontSize = 14.sp) }
+
+        PreferencesStage(
+            state = state, accent = accent,
+            kicker = "PREFERENCES",
+            title = "Languages & sources",
+            sub = "Re-pick the languages you read and your content preference — this reseeds your installed sources.",
+            cta = "Save & apply",
+            onDone = { state.showPreferences = false },
+        )
     }
 }
 
@@ -180,9 +220,39 @@ private fun AuthStage(state: AppState, accent: Color, busy: Boolean, onGuest: ()
 // ── Layer 2 · preferences ────────────────────────────────────────────────────────
 
 @Composable
-private fun PreferencesStage(state: AppState, accent: Color) {
+private fun PreferencesStage(
+    state: AppState,
+    accent: Color,
+    onDone: () -> Unit,
+    kicker: String = "YOU’RE IN",
+    title: String = "Set up your shelf",
+    sub: String = "Choose your languages and content preference — we’ll line up the matching " +
+        "sources. You can change any of this later in Settings.",
+    cta: String = "Start reading",
+) {
     // "Show 18+ sources" is the inverse of hideNsfwSources (default hidden).
     var show18 by remember { mutableStateOf(!state.hideNsfwSources) }
+    // Selected language codes; empty ⇒ all languages (mirrors the web onboarding).
+    val selectedLangs = remember { mutableStateListOf<String>() }
+
+    // Ensure the catalog is loaded before the language selector renders. loadCatalog
+    // no-ops (empty) when no source repository is active — the stage then degrades to
+    // just the 18+ toggle and the user can still finish (defaults preserved).
+    LaunchedEffect(Unit) {
+        if (state.catalogEntries.isEmpty() && !state.catalogLoading) state.loadCatalog()
+    }
+
+    val entries = state.catalogEntries
+    val langOptions = remember(entries) { languageOptions(entries) }
+
+    // A source matches iff its language is selected (or no language filter is set)
+    // AND it passes the 18+ gate. Empty match ⇒ fall back to the 18+-only set so the
+    // shelf is never seeded empty.
+    fun matchedIds(): List<String> = entries
+        .filter { (selectedLangs.isEmpty() || selectedLangs.contains(it.lang.lowercase())) && (show18 || !it.isNsfw) }
+        .map { it.id }
+    val fallbackCount = entries.count { show18 || !it.isNsfw }
+    val addCount = matchedIds().size.takeIf { it > 0 } ?: fallbackCount
 
     Column(
         modifier = Modifier.widthIn(max = 460.dp).fillMaxHeight().padding(40.dp)
@@ -190,14 +260,14 @@ private fun PreferencesStage(state: AppState, accent: Color) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.weight(1f))
-        Text("YOU’RE IN", color = accent, fontSize = 11.sp, fontWeight = FontWeight.Medium,
+        Text(kicker, color = accent, fontSize = 11.sp, fontWeight = FontWeight.Medium,
             letterSpacing = 2.5.sp)
         Spacer(Modifier.height(14.dp))
-        Text("Set up your shelf", color = NyoraTokens.onSurfaceHigh, fontSize = 30.sp,
+        Text(title, color = NyoraTokens.onSurfaceHigh, fontSize = 30.sp,
             fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         Spacer(Modifier.height(12.dp))
         Text(
-            "Choose your content preference — you can change any of this later in Settings.",
+            sub,
             color = NyoraTokens.onSurfaceMuted, fontSize = 14.sp, textAlign = TextAlign.Center,
             lineHeight = 21.sp,
         )
@@ -221,8 +291,39 @@ private fun PreferencesStage(state: AppState, accent: Color) {
                 colors = SwitchDefaults.colors(checkedTrackColor = accent),
             )
         }
-        Spacer(Modifier.height(18.dp))
 
+        // Language selector — only shown when the catalog is available. While the
+        // catalog is loading, a spinner sits in its place.
+        if (state.catalogLoading && entries.isEmpty()) {
+            Spacer(Modifier.height(24.dp))
+            CircularProgressIndicator(color = accent, modifier = Modifier.size(28.dp))
+        } else if (langOptions.isNotEmpty()) {
+            Spacer(Modifier.height(18.dp))
+            Column(
+                modifier = Modifier.fillMaxWidth()
+                    .glassCard(shape = RoundedCornerShape(18.dp), fill = NyoraTokens.surface1)
+                    .padding(18.dp),
+            ) {
+                Text("LANGUAGES", color = NyoraTokens.onSurfaceFaint, fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium, letterSpacing = 1.5.sp)
+                Spacer(Modifier.height(4.dp))
+                Text("Pick the languages you read, or keep “All languages”.",
+                    color = NyoraTokens.onSurfaceFaint, fontSize = 12.sp)
+                Spacer(Modifier.height(14.dp))
+                LanguageChips(
+                    options = langOptions,
+                    selected = selectedLangs,
+                    accent = accent,
+                    onAll = { selectedLangs.clear() },
+                    onToggle = { code ->
+                        if (selectedLangs.contains(code)) selectedLangs.remove(code)
+                        else selectedLangs.add(code)
+                    },
+                )
+            }
+        }
+
+        Spacer(Modifier.height(18.dp))
         Column(
             modifier = Modifier.fillMaxWidth()
                 .glassCard(shape = RoundedCornerShape(18.dp), fill = NyoraTokens.surface1)
@@ -231,22 +332,136 @@ private fun PreferencesStage(state: AppState, accent: Color) {
             Text("GOOD TO KNOW", color = NyoraTokens.onSurfaceFaint, fontSize = 11.sp,
                 fontWeight = FontWeight.Medium, letterSpacing = 1.5.sp)
             Spacer(Modifier.height(12.dp))
-            FeatureLine(accent, "Add a source repository in Explore to load sources")
+            FeatureLine(accent, "Tap the heart to favourite a series")
             FeatureLine(accent, "Pin your go-to sources to search them first")
             FeatureLine(accent, "Sign in on any device to pick up where you left off")
         }
 
-        Spacer(Modifier.height(28.dp))
+        // Live count of what "Start reading" will seed.
+        if (entries.isNotEmpty()) {
+            Spacer(Modifier.height(18.dp))
+            Text(
+                "$addCount source${if (addCount == 1) "" else "s"} will be added",
+                color = accent, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+            )
+        }
+
+        Spacer(Modifier.height(20.dp))
         Button(
             onClick = {
                 state.hideNsfwSources = !show18
-                state.finishOnboarding()
+                state.persistSettings()
+                var ids = matchedIds()
+                if (ids.isEmpty()) ids = entries.filter { show18 || !it.isNsfw }.map { it.id }
+                state.seedSources(ids)
+                onDone()
             },
             modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.White),
-        ) { Text("Start reading", fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
+        ) { Text(cta, fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
         Spacer(Modifier.weight(1f))
     }
+}
+
+// ── Language selection ───────────────────────────────────────────────────────────
+
+/** A distinct language present in the catalog, with a friendly label + count. */
+private data class LangOption(val code: String, val label: String, val count: Int)
+
+/**
+ * Distinct languages across [entries] as [LangOption]s, sorted by count desc then
+ * label. Entries with no language collapse under code "" (label "Other"), so the
+ * option set always covers every source. Mirrors the web's languageOptions().
+ */
+private fun languageOptions(entries: List<CatalogEntry>): List<LangOption> {
+    val counts = LinkedHashMap<String, Int>()
+    for (e in entries) {
+        val code = e.lang.lowercase()
+        counts[code] = (counts[code] ?: 0) + 1
+    }
+    return counts.entries
+        .map { (code, count) -> LangOption(code, if (code.isEmpty()) "Other" else langLabel(code), count) }
+        .sortedWith(compareByDescending<LangOption> { it.count }.thenBy { it.label })
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun LanguageChips(
+    options: List<LangOption>,
+    selected: List<String>,
+    accent: Color,
+    onAll: () -> Unit,
+    onToggle: (String) -> Unit,
+) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Chip(label = "All languages", count = null, active = selected.isEmpty(), accent = accent, onClick = onAll)
+        options.forEach { opt ->
+            Chip(
+                label = opt.label, count = opt.count,
+                active = selected.contains(opt.code), accent = accent,
+                onClick = { onToggle(opt.code) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun Chip(label: String, count: Int?, active: Boolean, accent: Color, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(if (active) accent.copy(alpha = 0.18f) else NyoraTokens.surface2)
+            .border(
+                width = 1.dp,
+                color = if (active) accent.copy(alpha = 0.65f) else NyoraTokens.onSurfaceFaint.copy(alpha = 0.22f),
+                shape = RoundedCornerShape(50),
+            )
+            .clickable { onClick() }
+            .padding(horizontal = 13.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            color = if (active) accent else NyoraTokens.onSurfaceBody,
+            fontSize = 13.sp,
+            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+        )
+        if (count != null) {
+            Spacer(Modifier.width(6.dp))
+            Text(
+                count.toString(),
+                color = if (active) accent.copy(alpha = 0.85f) else NyoraTokens.onSurfaceFaint,
+                fontSize = 11.sp,
+            )
+        }
+    }
+}
+
+// Friendly language names so onboarding shows names, not ISO codes (matches web).
+private val LANG_NAMES = mapOf(
+    "en" to "English", "es" to "Spanish", "es-419" to "Spanish (LatAm)", "pt" to "Portuguese",
+    "pt-br" to "Portuguese (BR)", "fr" to "French", "de" to "German", "it" to "Italian",
+    "ru" to "Russian", "id" to "Indonesian", "ar" to "Arabic", "tr" to "Turkish", "pl" to "Polish",
+    "vi" to "Vietnamese", "th" to "Thai", "ja" to "Japanese", "ko" to "Korean", "zh" to "Chinese",
+    "zh-hans" to "Chinese", "zh-hant" to "Chinese (Trad.)", "uk" to "Ukrainian", "fa" to "Persian",
+    "nl" to "Dutch", "multi" to "Multi-language", "all" to "Multi-language", "bg" to "Bulgarian",
+    "bn" to "Bengali", "ca" to "Catalan", "cs" to "Czech", "da" to "Danish", "el" to "Greek",
+    "fi" to "Finnish", "he" to "Hebrew", "hi" to "Hindi", "hr" to "Croatian", "hu" to "Hungarian",
+    "is" to "Icelandic", "kn" to "Kannada", "ml" to "Malayalam", "ms" to "Malay", "ne" to "Nepali",
+    "no" to "Norwegian", "ro" to "Romanian", "sk" to "Slovak", "sl" to "Slovenian", "sq" to "Albanian",
+    "sr" to "Serbian", "sv" to "Swedish", "ta" to "Tamil", "ur" to "Urdu", "fil" to "Filipino",
+    "mn" to "Mongolian", "ka" to "Georgian",
+)
+
+private fun langLabel(raw: String): String {
+    val code = raw.lowercase()
+    if (code.isEmpty()) return "Manga"
+    return LANG_NAMES[code] ?: LANG_NAMES[code.take(2)] ?: code.uppercase()
 }
 
 // ── bits ───────────────────────────────────────────────────────────────────────

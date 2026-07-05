@@ -84,6 +84,12 @@ fun App(state: AppState) {
                 }
             }
 
+            // Content & language preferences re-run (Settings ▸ "Re-run setup"),
+            // overlays everything.
+            if (state.showPreferences) {
+                PreferencesOverlay(state)
+            }
+
             // Cloudflare manual-clearance dialog (overlays everything, incl. the reader)
             if (state.cloudflareHost != null) {
                 CloudflareDialog(state)

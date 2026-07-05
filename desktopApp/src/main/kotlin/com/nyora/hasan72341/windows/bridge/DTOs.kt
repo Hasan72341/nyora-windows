@@ -12,6 +12,10 @@ data class CatalogEntry(
     val contentType: String,
     val isBroken: Boolean,
     val isInstalled: Boolean,
+    // Adult-only flag mirrored from the source's MangaSource.isNsfw (defaults false
+    // for tolerance if an older helper build omits it). Used to gate 18+ sources
+    // during onboarding / preference seeding.
+    val isNsfw: Boolean = false,
 )
 
 @Serializable

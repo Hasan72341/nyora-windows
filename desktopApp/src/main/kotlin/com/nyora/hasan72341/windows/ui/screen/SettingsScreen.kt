@@ -383,9 +383,14 @@ private fun LibraryCategory(state: AppState) = CategoryScroll {
         HairlineDivider()
         SettingsToggle("Keep 18+ out of history", state.noNsfwHistory) { state.noNsfwHistory = it }
         HairlineDivider()
-        SettingsToggle("Hide NSFW Sources", state.hideNsfwSources) {
-            state.hideNsfwSources = it
+        SettingsToggle("Show 18+ Sources", !state.hideNsfwSources) {
+            state.hideNsfwSources = !it
             state.persistSettings()
+        }
+        HairlineDivider()
+        // Re-open the onboarding preferences step (languages + 18+) to reseed sources.
+        SettingsRow("Content & language preferences") {
+            Button(onClick = { state.showPreferences = true }) { Text("Re-run setup") }
         }
         HairlineDivider()
         // History retention slider 0-360 step 30
