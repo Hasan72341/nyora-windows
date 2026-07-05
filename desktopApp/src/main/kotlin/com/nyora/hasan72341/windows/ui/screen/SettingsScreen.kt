@@ -745,6 +745,63 @@ private fun ParserUpdatesSection(state: AppState) {
             }
         }
     }
+
+    // Source repository — the (signed) link that activates real sources. Kept here
+    // so the demo library is what's front-and-centre until a valid repo is added.
+    SettingsSection(eyebrow = "Sources", title = "Source repository", icon = Icons.Rounded.Storage) {
+        if (state.repositoryActive) {
+            SettingsRow("Status") {
+                Text(
+                    "Connected",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = LocalNyoraAccent.current.color,
+                )
+            }
+            HairlineDivider()
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    state.repositoryUrl,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NyoraTokens.onSurfaceMuted,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(onClick = { state.removeSourceRepository() }) { Text("Remove repository") }
+            }
+        } else {
+            var link by remember { mutableStateOf(state.repositoryUrl) }
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    "Add a source repository link to load its sources.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NyoraTokens.onSurfaceMuted,
+                )
+                OutlinedTextField(
+                    value = link,
+                    onValueChange = { link = it; if (state.repoError != null) state.repoError = null },
+                    label = { Text("Repository URL") },
+                    singleLine = true,
+                    enabled = !state.repoLoading,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                state.repoError?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Button(onClick = { state.addSourceRepository(link) }, enabled = !state.repoLoading) {
+                        Text(if (state.repoLoading) "Adding…" else "Add repository")
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ── Section shell ─────────────────────────────────────────────────────────────────

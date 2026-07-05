@@ -61,9 +61,10 @@ import com.nyora.hasan72341.shared.model.MangaSource
 @Composable
 fun ExploreScreen(state: AppState) {
     // No sources are exposed until a source repository is added. Until then,
-    // Explore shows the repository prompt.
+    // Explore shows the bundled demo library (the "add repository" link lives in
+    // Settings ▸ Source repository). Once a repo is active, real sources replace it.
     if (!state.repositoryActive) {
-        NoRepositoryView(state)
+        DemoLibraryView(state)
         return
     }
     Row(

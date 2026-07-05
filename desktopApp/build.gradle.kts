@@ -63,7 +63,7 @@ compose.desktop {
             }
 
             packageName        = "nyora"
-            packageVersion     = "2.0.1"
+            packageVersion     = "2.0.2"
             description        = "Nyora — AI-powered manga reader"
             vendor             = "Nyora"
             copyright          = "© 2025 Nyora contributors"
