@@ -66,6 +66,9 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -107,6 +110,17 @@ class AppState(
     var showReader   by mutableStateOf(false)
     var showCatalog  by mutableStateOf(false)
     var showGlobalSearch by mutableStateOf(false)
+
+    // ── Sources gate (Windows) ──────────────────────────────────────────────────
+    // Sources ship LOCKED. The user unlocks them by adding a source-repository
+    // link (fetched + validated in unlockSourcesFromRepo). Persisted in prefs.
+    var sourcesUnlocked  by mutableStateOf(false)
+        private set
+    var sourcesRepoUrl   by mutableStateOf("")
+        private set
+    var unlockInProgress by mutableStateOf(false)
+        private set
+    var unlockError      by mutableStateOf<String?>(null)
 
     // ── Explore ───────────────────────────────────────────────────────────────
     var sources          by mutableStateOf<List<MangaSource>>(emptyList())
@@ -320,12 +334,15 @@ class AppState(
     // ── Source management ─────────────────────────────────────────────────────
 
     fun loadSources() {
+        // Locked builds expose NO sources until the user adds a valid repo link.
+        if (!sourcesUnlocked) { sources = emptyList(); return }
         scope.launch {
             sources = withContext(Dispatchers.IO) { facade.listSources() }
         }
     }
 
     fun loadCatalog() {
+        if (!sourcesUnlocked) { catalogEntries = emptyList(); catalogLoading = false; return }
         catalogLoading = true
         scope.launch {
             runCatching {
@@ -334,6 +351,57 @@ class AppState(
             }.onFailure { showStatus("Catalog load failed: ${it.message}") }
             catalogLoading = false
         }
+    }
+
+    /**
+     * Enable sources by adding a source-repository link. The URL is fetched and
+     * must return a small JSON manifest containing either `"unlock": true` or a
+     * non-empty `"sources"` array. On success the flag is persisted and the
+     * catalog is loaded. Nothing is bundled/active until this succeeds.
+     */
+    fun unlockSourcesFromRepo(url: String) {
+        val trimmed = url.trim()
+        if (trimmed.isEmpty()) { unlockError = "Enter a source repository link."; return }
+        if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+            unlockError = "Enter a valid http(s) link."; return
+        }
+        unlockInProgress = true
+        unlockError = null
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    val conn = java.net.URI(trimmed).toURL().openConnection() as java.net.HttpURLConnection
+                    conn.connectTimeout = 12_000
+                    conn.readTimeout = 12_000
+                    conn.setRequestProperty("Accept", "application/json")
+                    val text = conn.inputStream.bufferedReader().use { it.readText() }
+                    val obj = prefsJson.parseToJsonElement(text).jsonObject
+                    val unlockFlag = obj["unlock"]?.jsonPrimitive?.booleanOrNull == true
+                    val hasSources = (obj["sources"] as? kotlinx.serialization.json.JsonArray)?.isNotEmpty() == true
+                    unlockFlag || hasSources
+                }.getOrDefault(false)
+            }
+            unlockInProgress = false
+            if (ok) {
+                sourcesUnlocked = true
+                sourcesRepoUrl = trimmed
+                savePrefs()
+                loadSources()
+                loadCatalog()
+                showStatus("Sources enabled.")
+            } else {
+                unlockError = "Couldn't verify that link. Check the URL and try again."
+            }
+        }
+    }
+
+    /** Turn sources back off (clears the unlock; user can re-add the link). */
+    fun lockSources() {
+        sourcesUnlocked = false
+        sources = emptyList()
+        catalogEntries = emptyList()
+        activeSource = null
+        savePrefs()
     }
 
     fun installSource(id: String) {
@@ -1328,6 +1396,9 @@ class AppState(
             confirmBeforeQuit    = dto.confirmBeforeQuit
             // Advanced
             appLocale            = dto.appLocale
+            // Sources gate
+            sourcesUnlocked      = dto.sourcesUnlocked
+            sourcesRepoUrl       = dto.sourcesRepoUrl
         }
     }
 
@@ -1371,6 +1442,9 @@ class AppState(
                     confirmBeforeQuit = confirmBeforeQuit,
                     // Advanced
                     appLocale = appLocale,
+                    // Sources gate
+                    sourcesUnlocked = sourcesUnlocked,
+                    sourcesRepoUrl = sourcesRepoUrl,
                 )
                 prefsFile().writeText(prefsJson.encodeToString(AppPrefs.serializer(), dto))
             }
@@ -2001,6 +2075,11 @@ class AppState(
         val confirmBeforeQuit: Boolean = false,
         // Advanced
         val appLocale: String = "auto",
+        // Sources gate (Windows): ship locked; unlocked once the user adds a
+        // valid source-repository link. Defaults to locked so a fresh install
+        // has no active sources.
+        val sourcesUnlocked: Boolean = false,
+        val sourcesRepoUrl: String = "",
     )
 
     @Serializable

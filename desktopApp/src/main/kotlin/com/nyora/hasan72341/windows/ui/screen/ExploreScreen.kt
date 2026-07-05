@@ -60,6 +60,12 @@ import com.nyora.hasan72341.shared.model.MangaSource
  */
 @Composable
 fun ExploreScreen(state: AppState) {
+    // Sources ship locked — until the user adds a valid source-repository link,
+    // Explore shows only the activation prompt (no sources are exposed).
+    if (!state.sourcesUnlocked) {
+        SourcesLockedView(state)
+        return
+    }
     Row(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         horizontalArrangement = Arrangement.spacedBy(20.dp),
@@ -72,6 +78,65 @@ fun ExploreScreen(state: AppState) {
             state = state,
             modifier = Modifier.weight(0.7f).fillMaxHeight(),
         )
+    }
+}
+
+// ── Sources gate (activation) ───────────────────────────────────────────────────
+
+@Composable
+private fun SourcesLockedView(state: AppState) {
+    val accent = MaterialTheme.colorScheme.primary
+    var link by remember { mutableStateOf(state.sourcesRepoUrl) }
+    fun submit() { if (!state.unlockInProgress) state.unlockSourcesFromRepo(link) }
+
+    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.widthIn(max = 460.dp),
+        ) {
+            Icon(Icons.Rounded.Add, contentDescription = null, tint = accent, modifier = Modifier.size(38.dp))
+            Text(
+                "No sources configured",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                "Add a source repository link to enable sources.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth()
+                    .glassOverlay(shape = RoundedCornerShape(12.dp))
+                    .padding(start = 14.dp, end = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                BasicTextField(
+                    value = link,
+                    onValueChange = { link = it; if (state.unlockError != null) state.unlockError = null },
+                    singleLine = true,
+                    textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
+                    cursorBrush = SolidColor(accent),
+                    modifier = Modifier.weight(1f).padding(vertical = 13.dp),
+                    keyboardActions = KeyboardActions(onDone = { submit() }),
+                    decorationBox = { inner ->
+                        if (link.isEmpty()) {
+                            Text("https://…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        inner()
+                    },
+                )
+                if (state.unlockInProgress) {
+                    CircularProgressIndicator(Modifier.size(18.dp).padding(end = 8.dp), strokeWidth = 2.dp, color = accent)
+                } else {
+                    TextButton(onClick = { submit() }) { Text("Add") }
+                }
+            }
+            state.unlockError?.let { err ->
+                Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+        }
     }
 }
 
