@@ -381,6 +381,8 @@ private fun LibraryCategory(state: AppState) = CategoryScroll {
     SettingsSection(eyebrow = "Library", title = "Library & History", icon = Icons.Rounded.History) {
         SettingsToggle("Hide NSFW Content", state.nsfwFilter) { state.nsfwFilter = it }
         HairlineDivider()
+        SettingsToggle("Keep 18+ out of history", state.noNsfwHistory) { state.noNsfwHistory = it }
+        HairlineDivider()
         SettingsToggle("Hide NSFW Sources", state.hideNsfwSources) {
             state.hideNsfwSources = it
             state.persistSettings()

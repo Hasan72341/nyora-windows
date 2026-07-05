@@ -202,6 +202,7 @@ class AppState(
     // ── Settings ──────────────────────────────────────────────────────────────
     var prefetchEnabled by mutableStateOf(true)
     var nsfwFilter      by mutableStateOf(true)
+    var noNsfwHistory   by mutableStateOf(false)  // keep 18+ out of reading history
     var showPageNumbers by mutableStateOf(true)
 
     // ── Settings: Reader ────────────────────────────────────────────────────────
@@ -650,7 +651,7 @@ class AppState(
                 handleCloudflare(t) { openChapter(manga, chapter, src) }
             }
         }
-        if (!incognito) {
+        if (!incognito && !(noNsfwHistory && (manga.isNsfw || src.isNsfw))) {
             scope.launch(Dispatchers.IO) {
                 facade.recordHistory(manga.id, src.id, chapter.id, chapter.title, 0, 0f)
             }
@@ -754,6 +755,7 @@ class AppState(
         val m = readerManga ?: return
         val c = readerChapter ?: return
         val percent = if (readerPages.isEmpty()) 0f else page.toFloat() / readerPages.size
+        if (noNsfwHistory && (m.isNsfw || activeSource?.isNsfw == true)) return
         scope.launch(Dispatchers.IO) {
             facade.recordHistory(m.id, activeSource?.id ?: "", c.id, c.title, page, percent)
         }
