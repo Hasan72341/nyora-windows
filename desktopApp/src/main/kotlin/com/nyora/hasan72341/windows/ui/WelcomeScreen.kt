@@ -2,22 +2,17 @@ package com.nyora.windows.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,7 +21,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,128 +29,242 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nyora.windows.AppState
 import com.nyora.windows.ui.theme.LocalNyoraAccent
 import com.nyora.windows.ui.theme.NyoraTokens
+import com.nyora.windows.ui.theme.glassCard
 
-/** First-run start page: brand, a line of intent, and the two ways in —
- *  sign in (carry your library across devices) or continue as a guest. */
+/**
+ * First-run onboarding — a two-layer flow modelled on the web app:
+ *  Layer 1 (auth): editorial hero + an auth panel (sign in / create / guest).
+ *  Layer 2 (prefs): once you're in, a "Set up your shelf" card — the 18+ source
+ *  preference — then Start reading finishes onboarding.
+ */
 @Composable
 fun WelcomeScreen(state: AppState) {
     val accent = LocalNyoraAccent.current.color
     val busy = state.cloudSyncBusy
-    // Keep the welcome up while Google sign-in runs; dismiss only once it succeeds.
     val authed = state.cloudSyncStatus?.isAuthenticated == true
+
+    // "auth" → the sign-in stage; "prefs" → the preferences stage. Everyone passes
+    // through prefs (guest directly; signed-in/created after auth succeeds) so the
+    // Start-reading CTA is the single point that finishes onboarding.
+    var stage by remember { mutableStateOf("auth") }
+
     LaunchedEffect(Unit) { state.refreshCloudSyncStatus() }
-    LaunchedEffect(authed) { if (authed) state.finishOnboarding() }
+    LaunchedEffect(authed) { if (authed) stage = "prefs" }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Brush.verticalGradient(listOf(Color(0xFF0B0707), NyoraTokens.bg, Color.Black))),
         contentAlignment = Alignment.Center,
     ) {
-        // soft accent wash bleeding down from the top edge
+        // Ambient accent wash from the top edge (native, no per-frame animation).
         Box(
-            Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .height(320.dp)
-                .background(Brush.verticalGradient(listOf(accent.copy(alpha = 0.12f), Color.Transparent))),
+            Modifier.align(Alignment.TopCenter).fillMaxWidth().height(360.dp)
+                .background(Brush.verticalGradient(listOf(accent.copy(alpha = 0.13f), Color.Transparent))),
         )
-        Column(
-            modifier = Modifier.widthIn(max = 430.dp).padding(horizontal = 40.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Image(
-                painter = painterResource("nyora_logo.png"),
-                contentDescription = "Nyora",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.size(96.dp).clip(CircleShape),
+        Box(
+            Modifier.align(Alignment.BottomStart).size(520.dp)
+                .background(Brush.radialGradient(listOf(accent.copy(alpha = 0.08f), Color.Transparent))),
+        )
+
+        when (stage) {
+            "prefs" -> PreferencesStage(state, accent)
+            else -> AuthStage(
+                state = state, accent = accent, busy = busy,
+                onGuest = { stage = "prefs" },
             )
+        }
+    }
+}
+
+// ── Layer 1 · auth ─────────────────────────────────────────────────────────────
+
+@Composable
+private fun AuthStage(state: AppState, accent: Color, busy: Boolean, onGuest: () -> Unit) {
+    Row(
+        modifier = Modifier.widthIn(max = 980.dp).fillMaxWidth().padding(horizontal = 48.dp),
+        horizontalArrangement = Arrangement.spacedBy(56.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Editorial hero
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Image(
+                    painter = painterResource("nyora_logo.png"),
+                    contentDescription = "Nyora",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(44.dp).clip(CircleShape),
+                )
+                Spacer(Modifier.width(14.dp))
+                Text("NYORA", color = NyoraTokens.onSurfaceHigh, fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
+            }
             Spacer(Modifier.height(28.dp))
-            Text(
-                "破壊 · MANGA, UNINTERRUPTED",
-                color = accent,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 2.5.sp,
-                textAlign = TextAlign.Center,
-            )
+            Text("破壊 · MANGA, ANYWHERE THE NIGHT TAKES YOU", color = accent,
+                fontSize = 11.sp, fontWeight = FontWeight.Medium, letterSpacing = 2.sp)
+            Spacer(Modifier.height(18.dp))
+            Text("Read like the\nworld can wait.", color = NyoraTokens.onSurfaceHigh,
+                fontSize = 48.sp, fontWeight = FontWeight.Light, lineHeight = 54.sp)
             Spacer(Modifier.height(20.dp))
             Text(
-                "NYORA",
-                color = NyoraTokens.onSurfaceHigh,
-                fontSize = 60.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 3.sp,
-            )
-            Spacer(Modifier.height(16.dp))
-            Text(
-                "Read like the world can wait.",
-                color = NyoraTokens.onSurfaceHigh,
-                fontSize = 23.sp,
-                fontWeight = FontWeight.Light,
-                textAlign = TextAlign.Center,
-                lineHeight = 31.sp,
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "Your whole library — synced, private, and yours. Sign in to carry your shelf across every device, or dive straight in.",
-                color = NyoraTokens.onSurfaceMuted,
-                fontSize = 14.sp,
-                textAlign = TextAlign.Center,
-                lineHeight = 21.sp,
+                "Nyora pulls your sources into one quiet shelf and remembers exactly " +
+                    "where you stopped. Sign in to sync and back it up, or just start reading.",
+                color = NyoraTokens.onSurfaceMuted, fontSize = 15.sp, lineHeight = 23.sp,
+                modifier = Modifier.widthIn(max = 420.dp),
             )
             Spacer(Modifier.height(28.dp))
+            FeatureLine(accent, "Your sources, one shelf")
+            FeatureLine(accent, "Picks up on every device")
+            FeatureLine(accent, "No ads, ever")
+        }
+
+        // Auth panel
+        Column(
+            modifier = Modifier.width(400.dp)
+                .glassCard(shape = RoundedCornerShape(26.dp), fill = NyoraTokens.surface1)
+                .padding(28.dp),
+        ) {
+            Text("Start reading", color = NyoraTokens.onSurfaceHigh, fontSize = 20.sp,
+                fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(18.dp))
             var email by remember { mutableStateOf("") }
             var password by remember { mutableStateOf("") }
             OutlinedTextField(
-                value = email,
-                onValueChange = { email = it },
-                label = { Text("Email") },
-                singleLine = true,
-                enabled = !busy,
+                value = email, onValueChange = { email = it },
+                label = { Text("Email") }, singleLine = true, enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(10.dp))
             OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                label = { Text("Password") },
-                singleLine = true,
-                enabled = !busy,
+                value = password, onValueChange = { password = it },
+                label = { Text("Password") }, singleLine = true, enabled = !busy,
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(16.dp))
             Button(
-                onClick = { state.cloudSignIn(email, password) },
-                enabled = !busy,
+                onClick = { state.cloudSignIn(email, password) }, enabled = !busy,
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.White),
-            ) {
-                Text(if (busy) "Signing in…" else "Sign in", fontWeight = FontWeight.SemiBold)
-            }
+            ) { Text(if (busy) "Signing in…" else "Sign in", fontWeight = FontWeight.SemiBold) }
             Spacer(Modifier.height(10.dp))
             OutlinedButton(
-                onClick = { state.cloudRegister(email, password) },
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                shape = RoundedCornerShape(14.dp),
-            ) {
-                Text("Create account")
-            }
-            Spacer(Modifier.height(10.dp))
+                onClick = { state.cloudRegister(email, password) }, enabled = !busy,
+                modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp),
+            ) { Text("Create account") }
+            Spacer(Modifier.height(18.dp))
+            OrDivider()
+            Spacer(Modifier.height(14.dp))
             TextButton(
-                onClick = { state.finishOnboarding() },
+                onClick = onGuest, enabled = !busy,
                 modifier = Modifier.fillMaxWidth().height(46.dp),
-            ) {
-                Text("Continue as guest", color = NyoraTokens.onSurfaceMuted, fontSize = 14.sp)
-            }
+            ) { Text("Continue as guest", color = NyoraTokens.onSurfaceMuted, fontSize = 14.sp) }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "No account needed — go in as a guest and sync whenever you like.",
+                color = NyoraTokens.onSurfaceFaint, fontSize = 12.sp, textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
+    }
+}
+
+// ── Layer 2 · preferences ────────────────────────────────────────────────────────
+
+@Composable
+private fun PreferencesStage(state: AppState, accent: Color) {
+    // "Show 18+ sources" is the inverse of hideNsfwSources (default hidden).
+    var show18 by remember { mutableStateOf(!state.hideNsfwSources) }
+
+    Column(
+        modifier = Modifier.widthIn(max = 460.dp).fillMaxHeight().padding(40.dp)
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Spacer(Modifier.weight(1f))
+        Text("YOU’RE IN", color = accent, fontSize = 11.sp, fontWeight = FontWeight.Medium,
+            letterSpacing = 2.5.sp)
+        Spacer(Modifier.height(14.dp))
+        Text("Set up your shelf", color = NyoraTokens.onSurfaceHigh, fontSize = 30.sp,
+            fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "Choose your content preference — you can change any of this later in Settings.",
+            color = NyoraTokens.onSurfaceMuted, fontSize = 14.sp, textAlign = TextAlign.Center,
+            lineHeight = 21.sp,
+        )
+        Spacer(Modifier.height(28.dp))
+
+        // 18+ toggle row
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .glassCard(shape = RoundedCornerShape(18.dp), fill = NyoraTokens.surface1)
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Show 18+ sources", color = NyoraTokens.onSurfaceHigh, fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold)
+                Text("Include adult-only sources in Explore & search.",
+                    color = NyoraTokens.onSurfaceFaint, fontSize = 12.sp)
+            }
+            Switch(
+                checked = show18, onCheckedChange = { show18 = it },
+                colors = SwitchDefaults.colors(checkedTrackColor = accent),
+            )
+        }
+        Spacer(Modifier.height(18.dp))
+
+        Column(
+            modifier = Modifier.fillMaxWidth()
+                .glassCard(shape = RoundedCornerShape(18.dp), fill = NyoraTokens.surface1)
+                .padding(18.dp),
+        ) {
+            Text("GOOD TO KNOW", color = NyoraTokens.onSurfaceFaint, fontSize = 11.sp,
+                fontWeight = FontWeight.Medium, letterSpacing = 1.5.sp)
+            Spacer(Modifier.height(12.dp))
+            FeatureLine(accent, "Add a source repository in Explore to load sources")
+            FeatureLine(accent, "Pin your go-to sources to search them first")
+            FeatureLine(accent, "Sign in on any device to pick up where you left off")
+        }
+
+        Spacer(Modifier.height(28.dp))
+        Button(
+            onClick = {
+                state.hideNsfwSources = !show18
+                state.finishOnboarding()
+            },
+            modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.White),
+        ) { Text("Start reading", fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
+        Spacer(Modifier.weight(1f))
+    }
+}
+
+// ── bits ───────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun FeatureLine(accent: Color, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 5.dp)) {
+        Box(Modifier.size(6.dp).clip(CircleShape).background(accent))
+        Spacer(Modifier.width(12.dp))
+        Text(text, color = NyoraTokens.onSurfaceMuted, fontSize = 14.sp)
+    }
+}
+
+@Composable
+private fun OrDivider() {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f).height(1.dp).background(NyoraTokens.onSurfaceFaint.copy(alpha = 0.25f)))
+        Text("  or  ", color = NyoraTokens.onSurfaceFaint, fontSize = 12.sp)
+        Box(Modifier.weight(1f).height(1.dp).background(NyoraTokens.onSurfaceFaint.copy(alpha = 0.25f)))
     }
 }

@@ -146,12 +146,26 @@ private fun NoRepositoryView(state: AppState) {
 private fun SourcePane(state: AppState, modifier: Modifier = Modifier) {
     var filter by remember { mutableStateOf("") }
 
-    val installed = state.sources.filter { it.isInstalled && (!state.nsfwFilter || !it.isNsfw) }
+    // Source visibility is gated by the SOURCE 18+ toggle (hideNsfwSources), NOT by
+    // the "Hide NSFW Content" (manga) flag — so NSFW *sources* only appear once the
+    // user opts into 18+ sources.
+    val installed = state.sources.filter { it.isInstalled && (!state.hideNsfwSources || !it.isNsfw) }
     val q = filter.trim().lowercase()
     val matched = if (q.isEmpty()) installed
     else installed.filter { it.name.lowercase().contains(q) || it.lang.lowercase().contains(q) }
     val pinned = matched.filter { it.isPinned }.sortedBy { it.name.lowercase() }
-    val rest = matched.filter { !it.isPinned }.sortedBy { it.name.lowercase() }
+    // Remaining (non-pinned) sources, grouped by language like the web onboarding /
+    // Explore and the app's own CatalogSheet. Each group = a language section with a
+    // header + count; groups are ordered by size (desc) then language label (asc),
+    // with English kept first, and each group's rows sorted by name.
+    val rest = matched.filter { !it.isPinned }
+    val langGroups = rest.groupBy { it.lang.lowercase().ifBlank { "??" } }
+        .map { (lang, srcs) -> lang to srcs.sortedBy { it.name.lowercase() } }
+        .sortedWith(
+            compareByDescending<Pair<String, List<MangaSource>>> { it.first == "en" }
+                .thenByDescending { it.second.size }
+                .thenBy { langLabel(it.first) },
+        )
 
     Column(
         modifier = modifier
@@ -207,9 +221,11 @@ private fun SourcePane(state: AppState, modifier: Modifier = Modifier) {
                         )
                     }
                 }
-                if (rest.isNotEmpty()) {
-                    item(key = "h-installed") { GroupLabel("Installed") }
-                    items(rest, key = { "i-${it.id}" }) { src ->
+                langGroups.forEach { (lang, srcs) ->
+                    item(key = "h-lang-$lang") {
+                        GroupLabel("${langLabel(lang)} ${srcs.size}")
+                    }
+                    items(srcs, key = { "i-${it.id}" }) { src ->
                         SourceRow(
                             source = src,
                             selected = state.activeSource?.id == src.id,
@@ -303,6 +319,19 @@ private fun FilterField(value: String, onValueChange: (String) -> Unit) {
         }
     }
 }
+
+// Language-code → display label, matching the app's SettingsScreen/CatalogSheet
+// conventions. Unknown codes fall back to the uppercased code (e.g. "PT-BR").
+private val LANG_LABELS = mapOf(
+    "en" to "English", "ja" to "Japanese", "zh" to "Chinese", "ko" to "Korean",
+    "es" to "Spanish", "fr" to "French", "de" to "German", "pt" to "Portuguese",
+    "ru" to "Russian", "ar" to "Arabic", "it" to "Italian", "id" to "Indonesian",
+    "tr" to "Turkish", "vi" to "Vietnamese", "th" to "Thai", "pl" to "Polish",
+    "??" to "Other",
+)
+
+private fun langLabel(lang: String): String =
+    LANG_LABELS[lang.lowercase()] ?: lang.uppercase()
 
 @Composable
 private fun GroupLabel(text: String) {

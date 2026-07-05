@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil3.compose.AsyncImage
+import coil3.compose.SubcomposeAsyncImage
 import com.nyora.windows.AppState
 import com.nyora.windows.ReaderMode
 import com.nyora.windows.ui.reader.ReaderColorFilterSheet
@@ -675,12 +676,17 @@ private fun PagedReader(
                 ),
                 contentAlignment = Alignment.Center,
             ) {
-                AsyncImage(
+                SubcomposeAsyncImage(
                     model = state.proxyUrl(pages[index]),
                     contentDescription = "Page ${index + 1}",
                     contentScale = fitMode.contentScale(),
                     colorFilter = colorFilter,
                     modifier = Modifier.fillMaxSize(),
+                    loading = {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = LocalNyoraAccent.current.color)
+                        }
+                    },
                 )
 
                 val pt = state.pageTranslations[index]
@@ -802,12 +808,17 @@ private fun TranslationOverlay(
 private fun WebtoonReader(state: AppState, pages: List<MangaPage>, colorFilter: ColorFilter?) {
     LazyColumn(Modifier.fillMaxSize()) {
         itemsIndexed(pages) { index, page ->
-            AsyncImage(
+            SubcomposeAsyncImage(
                 model = state.proxyUrl(page),
                 contentDescription = "Page ${index + 1}",
                 contentScale = ContentScale.FillWidth,
                 colorFilter = colorFilter,
                 modifier = Modifier.fillMaxWidth(),
+                loading = {
+                    Box(Modifier.fillMaxWidth().height(480.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = LocalNyoraAccent.current.color)
+                    }
+                },
             )
         }
     }
@@ -820,12 +831,17 @@ private fun VerticalReader(state: AppState, pages: List<MangaPage>, colorFilter:
         verticalArrangement = Arrangement.spacedBy(0.dp), // Zero gap for modern feel
     ) {
         itemsIndexed(pages) { index, page ->
-            AsyncImage(
+            SubcomposeAsyncImage(
                 model = state.proxyUrl(page),
                 contentDescription = "Page ${index + 1}",
                 contentScale = ContentScale.FillWidth,
                 colorFilter = colorFilter,
                 modifier = Modifier.fillMaxWidth(),
+                loading = {
+                    Box(Modifier.fillMaxWidth().height(480.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = LocalNyoraAccent.current.color)
+                    }
+                },
             )
         }
     }
