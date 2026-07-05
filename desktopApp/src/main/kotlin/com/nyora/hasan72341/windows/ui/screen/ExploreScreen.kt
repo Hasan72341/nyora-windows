@@ -60,10 +60,10 @@ import com.nyora.hasan72341.shared.model.MangaSource
  */
 @Composable
 fun ExploreScreen(state: AppState) {
-    // Sources ship locked — until the user adds a valid source-repository link,
-    // Explore shows only the activation prompt (no sources are exposed).
-    if (!state.sourcesUnlocked) {
-        SourcesLockedView(state)
+    // No sources are exposed until a source repository is added. Until then,
+    // Explore shows the repository prompt.
+    if (!state.repositoryActive) {
+        NoRepositoryView(state)
         return
     }
     Row(
@@ -81,13 +81,13 @@ fun ExploreScreen(state: AppState) {
     }
 }
 
-// ── Sources gate (activation) ───────────────────────────────────────────────────
+// ── Source repository prompt ────────────────────────────────────────────────────
 
 @Composable
-private fun SourcesLockedView(state: AppState) {
+private fun NoRepositoryView(state: AppState) {
     val accent = MaterialTheme.colorScheme.primary
-    var link by remember { mutableStateOf(state.sourcesRepoUrl) }
-    fun submit() { if (!state.unlockInProgress) state.unlockSourcesFromRepo(link) }
+    var link by remember { mutableStateOf(state.repositoryUrl) }
+    fun submit() { if (!state.repoLoading) state.addSourceRepository(link) }
 
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
         Column(
@@ -97,12 +97,12 @@ private fun SourcesLockedView(state: AppState) {
         ) {
             Icon(Icons.Rounded.Add, contentDescription = null, tint = accent, modifier = Modifier.size(38.dp))
             Text(
-                "No sources configured",
+                "Add a source repository",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                "Add a source repository link to enable sources.",
+                "Paste a source repository link to load its sources.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -114,7 +114,7 @@ private fun SourcesLockedView(state: AppState) {
             ) {
                 BasicTextField(
                     value = link,
-                    onValueChange = { link = it; if (state.unlockError != null) state.unlockError = null },
+                    onValueChange = { link = it; if (state.repoError != null) state.repoError = null },
                     singleLine = true,
                     textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
                     cursorBrush = SolidColor(accent),
@@ -127,13 +127,13 @@ private fun SourcesLockedView(state: AppState) {
                         inner()
                     },
                 )
-                if (state.unlockInProgress) {
+                if (state.repoLoading) {
                     CircularProgressIndicator(Modifier.size(18.dp).padding(end = 8.dp), strokeWidth = 2.dp, color = accent)
                 } else {
                     TextButton(onClick = { submit() }) { Text("Add") }
                 }
             }
-            state.unlockError?.let { err ->
+            state.repoError?.let { err ->
                 Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
         }

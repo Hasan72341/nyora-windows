@@ -68,7 +68,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -111,16 +110,21 @@ class AppState(
     var showCatalog  by mutableStateOf(false)
     var showGlobalSearch by mutableStateOf(false)
 
-    // ── Sources gate (Windows) ──────────────────────────────────────────────────
-    // Sources ship LOCKED. The user unlocks them by adding a source-repository
-    // link (fetched + validated in unlockSourcesFromRepo). Persisted in prefs.
-    var sourcesUnlocked  by mutableStateOf(false)
+    // ── Source repository (Windows) ─────────────────────────────────────────────
+    // No sources are active until a source-repository INDEX is added. The index is
+    // fetched from a user-supplied URL and its Ed25519 signature is verified against
+    // INDEX_PUBLIC_KEY before any source is exposed; the index itself declares which
+    // sources exist. An unsigned/forged index is rejected.
+    private val INDEX_PUBLIC_KEY =
+        "MCowBQYDK2VwAyEA8pus7Do8tcNQXYqb+sZQZh2XJ70Iz3Zi/iE25USROT0="
+    var repositoryActive by mutableStateOf(false)
         private set
-    var sourcesRepoUrl   by mutableStateOf("")
+    var repositoryUrl    by mutableStateOf("")
         private set
-    var unlockInProgress by mutableStateOf(false)
+    var repoLoading      by mutableStateOf(false)
         private set
-    var unlockError      by mutableStateOf<String?>(null)
+    var repoError        by mutableStateOf<String?>(null)
+    private var repositorySourceIds: List<String> = emptyList()
 
     // ── Explore ───────────────────────────────────────────────────────────────
     var sources          by mutableStateOf<List<MangaSource>>(emptyList())
@@ -334,70 +338,95 @@ class AppState(
     // ── Source management ─────────────────────────────────────────────────────
 
     fun loadSources() {
-        // Locked builds expose NO sources until the user adds a valid repo link.
-        if (!sourcesUnlocked) { sources = emptyList(); return }
+        // No repository → no sources. Otherwise expose only the sources the signed
+        // index declared ("*" = the full built-in set).
+        if (!repositoryActive) { sources = emptyList(); return }
         scope.launch {
-            sources = withContext(Dispatchers.IO) { facade.listSources() }
+            val all = withContext(Dispatchers.IO) { facade.listSources() }
+            sources = if (repositorySourceIds.contains("*")) all
+                      else all.filter { it.id in repositorySourceIds }
         }
     }
 
     fun loadCatalog() {
-        if (!sourcesUnlocked) { catalogEntries = emptyList(); catalogLoading = false; return }
+        if (!repositoryActive) { catalogEntries = emptyList(); catalogLoading = false; return }
         catalogLoading = true
         scope.launch {
             runCatching {
                 val body = http.get("/sources/catalog")
-                catalogEntries = http.parse<CatalogResponse>(body).entries
+                val all = http.parse<CatalogResponse>(body).entries
+                catalogEntries = if (repositorySourceIds.contains("*")) all
+                                 else all.filter { it.id in repositorySourceIds }
             }.onFailure { showStatus("Catalog load failed: ${it.message}") }
             catalogLoading = false
         }
     }
 
     /**
-     * Enable sources by adding a source-repository link. The URL is fetched and
-     * must return a small JSON manifest containing either `"unlock": true` or a
-     * non-empty `"sources"` array. On success the flag is persisted and the
-     * catalog is loaded. Nothing is bundled/active until this succeeds.
+     * Add a source repository by its index URL. The URL is fetched and must return
+     * a signed index — `{"data": <base64 payload>, "sig": <base64 Ed25519 sig>}` —
+     * whose signature verifies against [INDEX_PUBLIC_KEY]. The payload declares the
+     * available sources (`{"v":1,"sources":[...]}`). Only a correctly-signed index
+     * activates sources; an unsigned or tampered index is rejected.
      */
-    fun unlockSourcesFromRepo(url: String) {
+    fun addSourceRepository(url: String) {
         val trimmed = url.trim()
-        if (trimmed.isEmpty()) { unlockError = "Enter a source repository link."; return }
+        if (trimmed.isEmpty()) { repoError = "Enter a repository link."; return }
         if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
-            unlockError = "Enter a valid http(s) link."; return
+            repoError = "Enter a valid http(s) link."; return
         }
-        unlockInProgress = true
-        unlockError = null
+        repoLoading = true
+        repoError = null
         scope.launch {
-            val ok = withContext(Dispatchers.IO) {
+            val ids: List<String>? = withContext(Dispatchers.IO) {
                 runCatching {
                     val conn = java.net.URI(trimmed).toURL().openConnection() as java.net.HttpURLConnection
                     conn.connectTimeout = 12_000
                     conn.readTimeout = 12_000
                     conn.setRequestProperty("Accept", "application/json")
                     val text = conn.inputStream.bufferedReader().use { it.readText() }
-                    val obj = prefsJson.parseToJsonElement(text).jsonObject
-                    val unlockFlag = obj["unlock"]?.jsonPrimitive?.booleanOrNull == true
-                    val hasSources = (obj["sources"] as? kotlinx.serialization.json.JsonArray)?.isNotEmpty() == true
-                    unlockFlag || hasSources
-                }.getOrDefault(false)
+                    val index = prefsJson.parseToJsonElement(text).jsonObject
+                    val dataB64 = index["data"]?.jsonPrimitive?.content ?: return@runCatching null
+                    val sigB64  = index["sig"]?.jsonPrimitive?.content ?: return@runCatching null
+                    val payloadBytes = java.util.Base64.getDecoder().decode(dataB64)
+                    if (!verifyIndexSignature(payloadBytes, sigB64)) return@runCatching null
+                    val payload = prefsJson.parseToJsonElement(String(payloadBytes, Charsets.UTF_8)).jsonObject
+                    (payload["sources"] as? kotlinx.serialization.json.JsonArray)
+                        ?.mapNotNull { it.jsonPrimitive.content }
+                        ?.takeIf { it.isNotEmpty() }
+                }.getOrNull()
             }
-            unlockInProgress = false
-            if (ok) {
-                sourcesUnlocked = true
-                sourcesRepoUrl = trimmed
+            repoLoading = false
+            if (ids != null) {
+                repositorySourceIds = ids
+                repositoryUrl = trimmed
+                repositoryActive = true
                 savePrefs()
                 loadSources()
                 loadCatalog()
                 showStatus("Sources enabled.")
             } else {
-                unlockError = "Couldn't verify that link. Check the URL and try again."
+                repoError = "Couldn't verify that repository link."
             }
         }
     }
 
-    /** Turn sources back off (clears the unlock; user can re-add the link). */
-    fun lockSources() {
-        sourcesUnlocked = false
+    /** Ed25519-verify [sigB64] over [data] using the embedded public key. */
+    private fun verifyIndexSignature(data: ByteArray, sigB64: String): Boolean = runCatching {
+        val keyBytes = java.util.Base64.getDecoder().decode(INDEX_PUBLIC_KEY)
+        val pub = java.security.KeyFactory.getInstance("Ed25519")
+            .generatePublic(java.security.spec.X509EncodedKeySpec(keyBytes))
+        val sig = java.security.Signature.getInstance("Ed25519")
+        sig.initVerify(pub)
+        sig.update(data)
+        sig.verify(java.util.Base64.getDecoder().decode(sigB64))
+    }.getOrDefault(false)
+
+    /** Remove the repository (sources go inactive; the link can be re-added). */
+    fun removeSourceRepository() {
+        repositoryActive = false
+        repositorySourceIds = emptyList()
+        repositoryUrl = ""
         sources = emptyList()
         catalogEntries = emptyList()
         activeSource = null
@@ -1396,9 +1425,10 @@ class AppState(
             confirmBeforeQuit    = dto.confirmBeforeQuit
             // Advanced
             appLocale            = dto.appLocale
-            // Sources gate
-            sourcesUnlocked      = dto.sourcesUnlocked
-            sourcesRepoUrl       = dto.sourcesRepoUrl
+            // Source repository
+            repositoryActive     = dto.repositoryActive
+            repositoryUrl        = dto.repositoryUrl
+            repositorySourceIds  = dto.repositorySourceIds
         }
     }
 
@@ -1442,9 +1472,10 @@ class AppState(
                     confirmBeforeQuit = confirmBeforeQuit,
                     // Advanced
                     appLocale = appLocale,
-                    // Sources gate
-                    sourcesUnlocked = sourcesUnlocked,
-                    sourcesRepoUrl = sourcesRepoUrl,
+                    // Source repository
+                    repositoryActive = repositoryActive,
+                    repositoryUrl = repositoryUrl,
+                    repositorySourceIds = repositorySourceIds,
                 )
                 prefsFile().writeText(prefsJson.encodeToString(AppPrefs.serializer(), dto))
             }
@@ -2075,11 +2106,10 @@ class AppState(
         val confirmBeforeQuit: Boolean = false,
         // Advanced
         val appLocale: String = "auto",
-        // Sources gate (Windows): ship locked; unlocked once the user adds a
-        // valid source-repository link. Defaults to locked so a fresh install
-        // has no active sources.
-        val sourcesUnlocked: Boolean = false,
-        val sourcesRepoUrl: String = "",
+        // Source repository (Windows): inactive until a signed index is added.
+        val repositoryActive: Boolean = false,
+        val repositoryUrl: String = "",
+        val repositorySourceIds: List<String> = emptyList(),
     )
 
     @Serializable
