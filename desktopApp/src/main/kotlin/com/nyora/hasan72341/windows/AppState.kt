@@ -1991,84 +1991,6 @@ class AppState(
         if (!resp.ok) error(resp.error.ifBlank { fallback })
     }
 
-    private suspend fun requestGoogleIdToken(clientId: String): String = withContext(Dispatchers.IO) {
-        val verifier = randomUrlSafe(48)
-        val state = randomUrlSafe(24)
-        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        val callbackPath = "/oauth/google/callback"
-        val redirectUri = "http://127.0.0.1:${server.address.port}$callbackPath"
-        val result = CompletableFuture<Result<String>>()
-
-        server.createContext(callbackPath) { exchange ->
-            val params = parseQuery(exchange.requestURI.rawQuery)
-            val body = if (params["state"] != state) {
-                result.complete(Result.failure(IllegalStateException("OAuth state mismatch.")))
-                "Nyora sign-in failed. Return to the app."
-            } else if (!params["error"].isNullOrBlank()) {
-                result.complete(Result.failure(IllegalStateException(params["error_description"] ?: params["error"] ?: "Google rejected sign-in.")))
-                "Nyora sign-in failed. Return to the app."
-            } else {
-                val code = params["code"].orEmpty()
-                if (code.isBlank()) {
-                    result.complete(Result.failure(IllegalStateException("Google returned no auth code.")))
-                    "Nyora sign-in failed. Return to the app."
-                } else {
-                    result.complete(Result.success(code))
-                    "Nyora sign-in complete. You can return to the app."
-                }
-            }
-            val bytes = "<html><body><p>$body</p></body></html>".toByteArray()
-            exchange.responseHeaders.add("Content-Type", "text/html; charset=utf-8")
-            exchange.sendResponseHeaders(200, bytes.size.toLong())
-            exchange.responseBody.use { it.write(bytes) }
-        }
-        server.start()
-
-        try {
-            val authUrl = "https://accounts.google.com/o/oauth2/v2/auth" +
-                "?client_id=${URLEncoder.encode(clientId, "UTF-8")}" +
-                "&redirect_uri=${URLEncoder.encode(redirectUri, "UTF-8")}" +
-                "&response_type=code" +
-                "&scope=${URLEncoder.encode("openid email profile", "UTF-8")}" +
-                "&code_challenge=${URLEncoder.encode(pkceChallenge(verifier), "UTF-8")}" +
-                "&code_challenge_method=S256" +
-                "&state=${URLEncoder.encode(state, "UTF-8")}" +
-                "&prompt=select_account"
-            openExternalUrl(authUrl)
-            showStatus("Waiting for Google sign-in in your browser…")
-            val outcome = try {
-                result.get(120, TimeUnit.SECONDS)
-            } catch (e: java.util.concurrent.TimeoutException) {
-                error("Timed out waiting for the browser to return. If Google showed \"Access blocked\" or stayed on a Google page, this app's Google sign-in still needs to be published in Google Cloud Console (OAuth consent screen → Publish app).")
-            }
-            val code = outcome.getOrThrow()
-            val tokenFormBuilder = FormBody.Builder()
-                .add("client_id", clientId)
-                .add("code", code)
-                .add("code_verifier", verifier)
-                .add("grant_type", "authorization_code")
-                .add("redirect_uri", redirectUri)
-            val clientSecret = SupabaseConfig.googleClientSecret
-            if (clientSecret.isNotBlank()) tokenFormBuilder.add("client_secret", clientSecret)
-            val tokenBody = tokenFormBuilder.build()
-            val req = Request.Builder()
-                .url("https://oauth2.googleapis.com/token")
-                .post(tokenBody)
-                .build()
-            authHttp.newCall(req).execute().use { resp ->
-                val text = resp.body?.string().orEmpty()
-                val token = runCatching { prefsJson.decodeFromString<GoogleOAuthTokenResponse>(text) }
-                    .getOrDefault(GoogleOAuthTokenResponse())
-                if (!resp.isSuccessful) {
-                    error(token.error_description.ifBlank { token.error.ifBlank { "Google token exchange failed ${resp.code}" } })
-                }
-                token.id_token.ifBlank { error("Google did not return an ID token.") }
-            }
-        } finally {
-            server.stop(0)
-        }
-    }
-
     fun openExternalUrl(url: String) {
         runCatching {
             if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
@@ -2213,16 +2135,6 @@ class AppState(
     @Serializable
     private data class SignInBody(val email: String = "", val password: String = "")
 
-    @Serializable
-    private data class GoogleOAuthTokenResponse(
-        val id_token: String = "",
-        val error: String = "",
-        val error_description: String = "",
-    )
-
-    private companion object {
-        private const val DESKTOP_GOOGLE_CLIENT_ID = "181067068545-5r2ob1jv4mc0v8gd52fgk2jt28pk3370.apps.googleusercontent.com"
-    }
 
     private fun showStatus(message: String) {
         statusMessage = message

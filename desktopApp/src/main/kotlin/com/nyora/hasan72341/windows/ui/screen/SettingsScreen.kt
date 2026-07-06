@@ -43,7 +43,6 @@ import com.nyora.windows.AppState
 import com.nyora.windows.ai.AiMode
 import com.nyora.windows.NavDest
 import com.nyora.windows.ReaderMode
-import com.nyora.windows.ui.GoogleLogo
 import com.nyora.windows.ui.theme.Accent
 import com.nyora.windows.ui.theme.AppearanceMode
 import com.nyora.windows.ui.theme.LocalNyoraAccent
