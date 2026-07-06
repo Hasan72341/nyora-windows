@@ -664,7 +664,8 @@ private fun CloudSyncSection(state: AppState) {
                     fontWeight = FontWeight.SemiBold,
                     color = if (status?.isAuthenticated == true) LocalNyoraAccent.current.color else NyoraTokens.onSurfaceMuted,
                 )
-                val subtitle = status?.email?.takeIf { it.isNotBlank() }
+                val subtitle = state.cloudEmail.takeIf { it.isNotBlank() && status?.isAuthenticated == true }
+                    ?: status?.email?.takeIf { it.isNotBlank() }
                     ?: status?.userId?.takeIf { it.isNotBlank() }?.take(8)
                 if (!subtitle.isNullOrBlank()) {
                     Text(

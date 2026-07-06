@@ -298,6 +298,10 @@ class AppState(
     var syncServerUrl   by mutableStateOf("")
     var cloudSyncStatus by mutableStateOf<SupabaseStatusResponse?>(null)
     var cloudSyncBusy   by mutableStateOf(false)
+    // The email the user signed in with — persisted so Settings can clearly show
+    // the account (the self-hosted JWT carries no email claim, so the server
+    // status can't supply it).
+    var cloudEmail      by mutableStateOf("")
 
     /** First-run start page gate — true until the user finishes onboarding (signs in
      *  or taps "Continue as guest"), tracked by a marker file under the config dir. */
@@ -1486,6 +1490,7 @@ class AppState(
             _accent     = runCatching { Accent.valueOf(dto.accent) }.getOrDefault(Accent.SYSTEM)
             _anilistToken = dto.anilistToken
             syncToken     = dto.syncToken
+            cloudEmail    = dto.cloudEmail
             syncServerUrl = dto.syncServerUrl
             // Reader
             defaultReaderMode    = runCatching { ReaderMode.valueOf(dto.defaultReaderMode) }.getOrDefault(ReaderMode.PAGED)
@@ -1534,6 +1539,7 @@ class AppState(
                     accent = accent.name,
                     anilistToken = anilistToken,
                     syncToken = syncToken,
+                    cloudEmail = cloudEmail,
                     syncServerUrl = syncServerUrl,
                     // Reader
                     defaultReaderMode = defaultReaderMode.name,
@@ -1899,6 +1905,8 @@ class AppState(
                 showStatus("Signing in...")
                 val q = "?email=${URLEncoder.encode(em, "UTF-8")}&password=${URLEncoder.encode(password, "UTF-8")}"
                 requireSupabaseOk(http.post("$path$q"), "Sign-in failed")
+                cloudEmail = em
+                savePrefs()
 
                 val hasLocalData = prefsJson.decodeFromString<SupabaseLocalDataResponse>(
                     http.get("/supabase/has-local-data"),
@@ -1952,6 +1960,8 @@ class AppState(
             cloudSyncBusy = true
             runCatching {
                 requireSupabaseOk(http.post("/supabase/signout"), "Cloud sign-out failed")
+                cloudEmail = ""
+                savePrefs()
                 cloudSyncStatus = fetchCloudSyncStatus()
                 showStatus("Signed out of cloud sync.")
             }.onFailure { showStatus("Cloud sign-out failed: ${it.message}") }
@@ -2096,6 +2106,7 @@ class AppState(
         val accent: String = Accent.SYSTEM.name,
         val anilistToken: String = "",
         val syncToken: String = "",
+        val cloudEmail: String = "",
         val syncServerUrl: String = "",
         // Reader
         val defaultReaderMode: String = ReaderMode.PAGED.name,
