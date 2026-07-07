@@ -695,18 +695,26 @@ private fun CloudSyncSection(state: AppState) {
             } else {
                 var email by remember { mutableStateOf("") }
                 var password by remember { mutableStateOf("") }
-                OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email") }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = email, onValueChange = { email = it; state.authMessage = null }, label = { Text("Email") }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("Password") }, singleLine = true, enabled = !busy, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = password, onValueChange = { password = it; state.authMessage = null }, label = { Text("Password") }, singleLine = true, enabled = !busy, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
                 Row {
-                    Button(onClick = { state.cloudSignIn(email, password) }, enabled = !busy && status?.isConfigured != false) {
-                        Text(if (busy) "Signing in..." else "Sign in")
+                    Button(onClick = { state.cloudSignIn(email, password) }, enabled = !busy) {
+                        Text(if (busy) "Working…" else "Sign in")
                     }
                     Spacer(Modifier.width(8.dp))
-                    OutlinedButton(onClick = { state.cloudRegister(email, password) }, enabled = !busy && status?.isConfigured != false) {
-                        Text("Create account")
+                    OutlinedButton(onClick = { state.cloudRegister(email, password) }, enabled = !busy) {
+                        Text(if (busy) "Working…" else "Create account")
                     }
+                }
+                state.authMessage?.let { msg ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        msg,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = LocalNyoraAccent.current.color,
+                    )
                 }
             }
         }

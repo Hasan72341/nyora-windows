@@ -298,6 +298,12 @@ class AppState(
     var syncServerUrl   by mutableStateOf("")
     var cloudSyncStatus by mutableStateOf<SupabaseStatusResponse?>(null)
     var cloudSyncBusy   by mutableStateOf(false)
+    // Persistent auth feedback shown inline in the sign-in / create-account panels.
+    // Unlike the transient global snackbar (statusMessage), this is NOT auto-cleared
+    // and it renders on the first-run Welcome screen, which sits above the snackbar
+    // host — so create-account/sign-in outcomes are always visible. Cleared when the
+    // user edits a field (see WelcomeScreen / SettingsScreen).
+    var authMessage     by mutableStateOf<String?>(null)
     // The email the user signed in with — persisted so Settings can clearly show
     // the account (the self-hosted JWT carries no email claim, so the server
     // status can't supply it).
@@ -1887,24 +1893,28 @@ class AppState(
         }
     }
 
-    fun cloudSignIn(email: String, password: String) = cloudAuth("/supabase/signin", email, password)
+    fun cloudSignIn(email: String, password: String) = cloudAuth("/supabase/signin", email, password, register = false)
 
-    fun cloudRegister(email: String, password: String) = cloudAuth("/supabase/register", email, password)
+    fun cloudRegister(email: String, password: String) = cloudAuth("/supabase/register", email, password, register = true)
 
-    private fun cloudAuth(path: String, email: String, password: String) {
+    private fun cloudAuth(path: String, email: String, password: String, register: Boolean) {
         if (cloudSyncBusy) return
         val em = email.trim()
-        if (em.isEmpty() || password.isEmpty()) { showStatus("Enter your email and password"); return }
+        // Up-front validation with VISIBLE feedback — these messages surface inline on
+        // the first-run Welcome screen (which renders above the global snackbar host).
+        if (em.isEmpty() || password.isEmpty()) { authMessage = "Enter your email and password to continue."; return }
+        if (register && !em.contains("@")) { authMessage = "Enter a valid email address."; return }
+        if (register && password.length < 6) { authMessage = "Use a password with at least 6 characters."; return }
         scope.launch {
             cloudSyncBusy = true
             runCatching {
                 val status = fetchCloudSyncStatus()
                 cloudSyncStatus = status
-                if (!status.isConfigured) error("Sync server is not configured.")
+                if (!status.isConfigured) error("Sync is temporarily unavailable. Please try again later.")
 
-                showStatus("Signing in...")
+                authMessage = if (register) "Creating your account…" else "Signing in…"
                 val q = "?email=${URLEncoder.encode(em, "UTF-8")}&password=${URLEncoder.encode(password, "UTF-8")}"
-                requireSupabaseOk(http.post("$path$q"), "Sign-in failed")
+                requireSupabaseOk(http.post("$path$q"), if (register) "Couldn't create your account" else "Sign-in failed")
                 cloudEmail = em
                 savePrefs()
 
@@ -1912,17 +1922,33 @@ class AppState(
                     http.get("/supabase/has-local-data"),
                 ).hasLocalData
                 if (hasLocalData) {
-                    showStatus("Syncing library...")
+                    authMessage = "Syncing your library…"
                     requireSupabaseOk(http.post("/supabase/sync"), "Cloud sync failed")
                 } else {
-                    showStatus("Restoring cloud library...")
+                    authMessage = "Setting up your library…"
                     requireSupabaseOk(http.post("/supabase/restore-from-cloud"), "Cloud restore failed")
                 }
                 refreshLibrary()
                 cloudSyncStatus = fetchCloudSyncStatus()
-                showStatus("Cloud sync ready.")
-            }.onFailure { showStatus("Sign-in failed: ${it.message}") }
+                authMessage = if (register) "Account created — you're all set." else "Signed in — sync is ready."
+                showStatus(authMessage!!)
+            }.onFailure { authMessage = friendlyAuthError(it.message, register) }
             cloudSyncBusy = false
+        }
+    }
+
+    /** Maps raw server/helper errors to a clear, jargon-free message for the user. */
+    private fun friendlyAuthError(raw: String?, register: Boolean): String {
+        val m = raw.orEmpty()
+        return when {
+            m.contains("already registered", ignoreCase = true) || m.contains("409") ->
+                "That email is already registered — try signing in instead."
+            m.contains("valid email", ignoreCase = true) || m.contains("422") ->
+                "Enter a valid email address."
+            !register && (m.contains("401") || m.contains("invalid", ignoreCase = true)) ->
+                "Incorrect email or password."
+            register -> "Couldn't create your account. Check your connection and try again."
+            else -> "Couldn't sign in. Check your connection and try again."
         }
     }
 

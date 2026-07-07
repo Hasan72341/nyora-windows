@@ -177,13 +177,13 @@ private fun AuthStage(state: AppState, accent: Color, busy: Boolean, onGuest: ()
             var email by remember { mutableStateOf("") }
             var password by remember { mutableStateOf("") }
             OutlinedTextField(
-                value = email, onValueChange = { email = it },
+                value = email, onValueChange = { email = it; state.authMessage = null },
                 label = { Text("Email") }, singleLine = true, enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(10.dp))
             OutlinedTextField(
-                value = password, onValueChange = { password = it },
+                value = password, onValueChange = { password = it; state.authMessage = null },
                 label = { Text("Password") }, singleLine = true, enabled = !busy,
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
@@ -194,12 +194,32 @@ private fun AuthStage(state: AppState, accent: Color, busy: Boolean, onGuest: ()
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.White),
-            ) { Text(if (busy) "Signing in…" else "Sign in", fontWeight = FontWeight.SemiBold) }
+            ) { Text(if (busy) "Working…" else "Sign in", fontWeight = FontWeight.SemiBold) }
             Spacer(Modifier.height(10.dp))
             OutlinedButton(
                 onClick = { state.cloudRegister(email, password) }, enabled = !busy,
                 modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp),
-            ) { Text("Create account") }
+            ) { Text(if (busy) "Working…" else "Create account") }
+
+            // Inline auth feedback. The first-run Welcome screen renders above the
+            // app's global snackbar host, so validation/progress/errors must be shown
+            // here or the buttons look unresponsive (Store cert 10.1.2.10 fix).
+            state.authMessage?.let { msg ->
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (busy) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(15.dp), strokeWidth = 2.dp, color = accent,
+                        )
+                        Spacer(Modifier.width(10.dp))
+                    }
+                    Text(
+                        msg,
+                        color = if (busy) NyoraTokens.onSurfaceMuted else accent,
+                        fontSize = 13.sp, lineHeight = 18.sp,
+                    )
+                }
+            }
             Spacer(Modifier.height(18.dp))
             OrDivider()
             Spacer(Modifier.height(14.dp))
