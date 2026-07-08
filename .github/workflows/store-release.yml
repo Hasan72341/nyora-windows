@@ -32,6 +32,11 @@ on:
         description: "Package version (e.g. 1.2.0). Normalised to 4 parts."
         required: true
         default: "2.0.6.0"
+      submit:
+        description: "Submit the built bundle to the Microsoft Store? Leave false to only build + smoke-test + upload the .msixbundle artifact for manual/clean-VM validation."
+        required: true
+        type: boolean
+        default: false
   # To submit automatically whenever you publish a GitHub release, uncomment:
   # release:
   #   types: [published]
@@ -239,13 +244,20 @@ jobs:
           if (-not $have) {
             Write-Host "::notice::Store secrets not set — skipping auto-submit. Download the 'msixbundle' artifact and upload it in Partner Center."
           }
+          $wantSubmit = "${{ github.event.inputs.submit }}"
+          if ($wantSubmit -ne 'true') {
+            Write-Host "::notice::submit=false — build-only run. The .msixbundle is uploaded as an artifact; no Store submission. Validate on a clean x64 VM, then re-run with submit=true (or upload manually in Partner Center)."
+          }
 
+      # Submit only when BOTH the Store secrets are present AND the dispatcher
+      # explicitly asked for it (submit=true). A default build-only run stops at
+      # the uploaded .msixbundle artifact so nothing is resubmitted unvalidated.
       - name: Configure the Microsoft Store CLI (puts msstore on PATH)
-        if: steps.creds.outputs.have == 'true'
+        if: steps.creds.outputs.have == 'true' && github.event.inputs.submit == 'true'
         uses: microsoft/microsoft-store-apppublisher@v1.1
 
       - name: Authenticate msstore
-        if: steps.creds.outputs.have == 'true'
+        if: steps.creds.outputs.have == 'true' && github.event.inputs.submit == 'true'
         shell: pwsh
         run: |
           msstore reconfigure `
@@ -255,7 +267,7 @@ jobs:
             --clientSecret $env:AZURE_AD_APPLICATION_SECRET
 
       - name: Publish the bundle to the Store
-        if: steps.creds.outputs.have == 'true'
+        if: steps.creds.outputs.have == 'true' && github.event.inputs.submit == 'true'
         shell: pwsh
         run: |
           $bundle = Get-ChildItem dist -Filter *.msixbundle | Select-Object -First 1
