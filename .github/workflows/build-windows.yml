@@ -21,8 +21,14 @@ jobs:
         include:
           - arch: x64
             runner: windows-latest
+            # x64 uses Temurin: it relies on the OS Universal CRT and app-locals
+            # only the VC++ runtime, avoiding Zulu's private app-local UCRT that
+            # can fail to load on a pristine machine ("Failed to launch JVM").
+            jdk: temurin
           - arch: arm64
             runner: windows-11-arm
+            # ARM64 stays on Zulu — Temurin has no Windows-ARM64 JDK 17 build.
+            jdk: zulu
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
@@ -32,12 +38,12 @@ jobs:
           # can clone it — no PAT needed.
           submodules: recursive
 
-      # Zulu (Azul) ships JDK 17 for BOTH Windows x64 and aarch64; Temurin has no
-      # Windows-ARM64 17 build, so setup-java can't satisfy it on the arm64 runner.
+      # Per-arch JDK vendor: Temurin (x64) relies on the OS UCRT; Zulu (arm64)
+      # is the only vendor shipping a Windows-ARM64 JDK 17. See the matrix above.
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: zulu
+          distribution: ${{ matrix.jdk }}
           java-version: "17"
 
       # jpackage's Windows .exe/.msi installers require WiX 3.x (candle.exe /

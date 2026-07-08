@@ -31,7 +31,7 @@ on:
       version:
         description: "Package version (e.g. 1.2.0). Normalised to 4 parts."
         required: true
-        default: "1.0.0"
+        default: "2.0.6.0"
   # To submit automatically whenever you publish a GitHub release, uncomment:
   # release:
   #   types: [published]
@@ -49,8 +49,20 @@ jobs:
         include:
           - arch: x64
             runner: windows-latest
+            # Temurin's Windows x64 runtime relies on the OS Universal CRT
+            # (present on every Win10 1809+ / Win11) and app-locals ONLY the
+            # VC++ runtime (vcruntime140*.dll, msvcp140.dll). Zulu additionally
+            # ships a PRIVATE app-local UCRT (ucrtbase.dll + api-ms-win-crt-*),
+            # which is the one thing that differs between our build hosts and a
+            # pristine cert machine — and the most likely trigger of the Store
+            # cert "Failed to launch JVM" crash on clean Win11 26200 (25H2).
+            # Using Temurin removes that variable for the x64 package.
+            jdk: temurin
           - arch: arm64
             runner: windows-11-arm
+            # Temurin has no Windows-ARM64 JDK 17 build, so ARM64 stays on Zulu
+            # (the only vendor that ships one). The cert failure was x64-only.
+            jdk: zulu
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
@@ -62,7 +74,7 @@ jobs:
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: zulu
+          distribution: ${{ matrix.jdk }}
           java-version: "17"
 
       - name: Fail if the manifest still has Partner Center placeholders
@@ -103,6 +115,63 @@ jobs:
       - name: Build ${{ matrix.arch }} MSIX
         shell: pwsh
         run: .\scripts\build-msix.ps1 -Architecture ${{ matrix.arch }} -Version ${{ steps.ver.outputs.version }}
+
+      # Prove the bundled JVM actually comes up in the app-image jpackage just
+      # produced. Catches the exact "Failed to launch JVM" class of failure that
+      # the Store cert lab hit — BEFORE we bundle and submit. Two checks:
+      #   1) The bundled java.exe -version loads jvm.dll + all its CRT deps.
+      #   2) The real jpackage launcher (Nyora.exe) gets PAST JVM creation
+      #      (stays alive), rather than dying instantly with the launch error.
+      # NOTE: GitHub runners are NOT pristine (they have VC++ redist), so a PASS
+      # here is necessary-but-not-sufficient — final validation is a clean-OS VM.
+      - name: Smoke-test the bundled JVM launch (${{ matrix.arch }})
+        if: ${{ matrix.arch == 'x64' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $appRoot = "desktopApp/build/compose/binaries/main-release/app"
+          $exe = Get-ChildItem -Path $appRoot -Recurse -Filter *.exe -File |
+                 Where-Object { $_.FullName -notmatch '\\runtime\\' } |
+                 Select-Object -First 1
+          if (-not $exe) { throw "No app launcher .exe found under $appRoot" }
+          $imgDir  = $exe.Directory.FullName
+          $javaExe = Join-Path $imgDir 'runtime\bin\java.exe'
+          Write-Host "App launcher : $($exe.FullName)"
+          Write-Host "Bundled java : $javaExe"
+
+          Write-Host "`n--- runtime\bin CRT composition (shows whether an app-local UCRT is present) ---"
+          Get-ChildItem (Join-Path $imgDir 'runtime\bin') -Filter *.dll |
+            Where-Object { $_.Name -match '^(ucrtbase|api-ms-win-crt|vcruntime140|msvcp140|concrt140)' } |
+            Select-Object Name | Format-Table -AutoSize
+
+          Write-Host "`n--- (1) bundled java.exe -version ---"
+          & $javaExe -version
+          if ($LASTEXITCODE -ne 0) { throw "Bundled java.exe -version FAILED (exit $LASTEXITCODE) — jvm.dll / CRT load chain is broken." }
+
+          Write-Host "`n--- (2) launch the jpackage app for 20s and watch for the launch error ---"
+          $outFile = Join-Path $env:RUNNER_TEMP 'nyora-launch.out'
+          $errFile = Join-Path $env:RUNNER_TEMP 'nyora-launch.err'
+          $p = Start-Process -FilePath $exe.FullName -PassThru `
+                 -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+          Start-Sleep -Seconds 20
+          $alive = -not $p.HasExited
+          if ($alive) {
+            Write-Host "OK: launcher still running after 20s -> JVM created successfully. Stopping it."
+            try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {}
+          } else {
+            Write-Host "Launcher exited early with code $($p.ExitCode)."
+          }
+          $out = (Test-Path $outFile) ? (Get-Content $outFile -Raw) : ''
+          $err = (Test-Path $errFile) ? (Get-Content $errFile -Raw) : ''
+          if ($out) { Write-Host "--- stdout ---`n$out" }
+          if ($err) { Write-Host "--- stderr ---`n$err" }
+          if (("$out$err") -match 'Failed to launch JVM|Failed to load JVM|Error: could not|A JNI error') {
+            throw "The jpackage launcher reported a JVM launch failure — this is the cert-blocking bug. Do not ship."
+          }
+          # Only the JVM-launch error is a hard failure. A non-JVM early exit on
+          # the headless-ish runner (e.g. GPU/display) is NOT our bug and is not
+          # failed here — it is validated on a real desktop / clean VM instead.
+          Write-Host "Smoke test passed (no JVM launch failure detected)."
 
       - name: Upload MSIX artifact
         uses: actions/upload-artifact@v4
