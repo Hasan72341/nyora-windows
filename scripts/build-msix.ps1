@@ -265,6 +265,36 @@ Write-Info "Stage dir     : $StageRoot"
 Write-Info "Copying app-image -> app\ ..."
 Copy-Item -Path (Join-Path $AppImageDir '*') -Destination $StageApp -Recurse -Force
 
+# ---------------------------------------------------------------------------
+# HARDENING: mirror the VC++ runtime DLLs NEXT TO the launcher .exe.
+#
+# The bundled JRE ships vcruntime140.dll / vcruntime140_1.dll / msvcp140.dll in
+# runtime\bin, and the jpackage launcher is supposed to add runtime\bin to the
+# DLL search path before it loads jvm.dll. On a build/CI/dev box that always
+# works because the VC++ redistributable is ALSO installed system-wide, so
+# jvm.dll's CRT imports resolve from System32 regardless. On a PRISTINE machine
+# (no redist) — exactly what the Microsoft Store cert lab uses — if that search-
+# path setup doesn't take effect, jvm.dll fails to load and the launcher aborts
+# with "Failed to launch JVM" (Store cert 10.1.2.10, seen on clean Win11 26200).
+#
+# The executable's OWN directory is ALWAYS first in the Windows DLL search order,
+# so copying the CRT beside app\<launcher>.exe guarantees jvm.dll resolves its
+# CRT imports on any machine, independent of the launcher's runtime\bin handling.
+# This is the standard, low-risk fix for jpackage "Failed to launch JVM" on clean
+# Windows and is safe everywhere (a machine WITH the redist just ignores it).
+$crtNames = @('vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll')
+$runtimeBin = Join-Path $StageApp 'runtime\bin'
+Write-Info "Mirroring VC++ runtime next to the launcher (clean-machine hardening) ..."
+foreach ($crt in $crtNames) {
+    $src = Join-Path $runtimeBin $crt
+    if (Test-Path $src) {
+        Copy-Item -Path $src -Destination $StageApp -Force
+        Write-Info "  + app\$crt"
+    } else {
+        Write-Info "  ! $crt not found in runtime\bin (JRE vendor may name it differently) — skipped."
+    }
+}
+
 # Copy MSIX logos into <stage>\assets\.
 Write-Info "Copying logos -> assets\ ..."
 Copy-Item -Path (Join-Path $AssetsSrc '*') -Destination $StageAsset -Recurse -Force
