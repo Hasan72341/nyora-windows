@@ -642,7 +642,7 @@ private fun AboutCategory(state: AppState) = CategoryScroll {
     }
 }
 
-// ── Cloud sync + parser updates (their own self-loading sections) ─────────────────────
+// ── Nyora Sync + app updates (their own self-loading sections) ─────────────────────
 
 @Composable
 private fun CloudSyncSection(state: AppState) {

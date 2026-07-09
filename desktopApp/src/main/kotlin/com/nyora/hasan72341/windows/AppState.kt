@@ -1889,7 +1889,7 @@ class AppState(
         scope.launch {
             runCatching {
                 cloudSyncStatus = fetchCloudSyncStatus()
-            }.onFailure { showStatus("Cloud sync status failed: ${it.message}") }
+            }.onFailure { showStatus("Nyora Sync status failed: ${it.message}") }
         }
     }
 
