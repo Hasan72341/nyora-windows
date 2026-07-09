@@ -1923,10 +1923,10 @@ class AppState(
                 ).hasLocalData
                 if (hasLocalData) {
                     authMessage = "Syncing your library…"
-                    requireSupabaseOk(http.post("/supabase/sync"), "Cloud sync failed")
+                    requireSupabaseOk(http.post("/supabase/sync"), "Nyora Sync failed")
                 } else {
                     authMessage = "Setting up your library…"
-                    requireSupabaseOk(http.post("/supabase/restore-from-cloud"), "Cloud restore failed")
+                    requireSupabaseOk(http.post("/supabase/restore-from-cloud"), "Nyora Sync restore failed")
                 }
                 refreshLibrary()
                 cloudSyncStatus = fetchCloudSyncStatus()
@@ -1957,11 +1957,11 @@ class AppState(
         scope.launch {
             cloudSyncBusy = true
             runCatching {
-                requireSupabaseOk(http.post("/supabase/sync"), "Cloud sync failed")
+                requireSupabaseOk(http.post("/supabase/sync"), "Nyora Sync failed")
                 refreshLibrary()
                 cloudSyncStatus = fetchCloudSyncStatus()
-                showStatus("Cloud sync complete.")
-            }.onFailure { showStatus("Cloud sync failed: ${it.message}") }
+                showStatus("Nyora Sync complete.")
+            }.onFailure { showStatus("Nyora Sync failed: ${it.message}") }
             cloudSyncBusy = false
         }
     }
@@ -1971,11 +1971,11 @@ class AppState(
         scope.launch {
             cloudSyncBusy = true
             runCatching {
-                requireSupabaseOk(http.post("/supabase/restore-from-cloud"), "Cloud restore failed")
+                requireSupabaseOk(http.post("/supabase/restore-from-cloud"), "Nyora Sync restore failed")
                 refreshLibrary()
                 cloudSyncStatus = fetchCloudSyncStatus()
-                showStatus("Cloud library restored.")
-            }.onFailure { showStatus("Cloud restore failed: ${it.message}") }
+                showStatus("Nyora Sync library restored.")
+            }.onFailure { showStatus("Nyora Sync restore failed: ${it.message}") }
             cloudSyncBusy = false
         }
     }
@@ -1985,11 +1985,11 @@ class AppState(
         scope.launch {
             cloudSyncBusy = true
             runCatching {
-                requireSupabaseOk(http.post("/supabase/signout"), "Cloud sign-out failed")
+                requireSupabaseOk(http.post("/supabase/signout"), "Nyora Sync sign-out failed")
                 cloudEmail = ""
                 savePrefs()
                 cloudSyncStatus = fetchCloudSyncStatus()
-                showStatus("Signed out of cloud sync.")
+                showStatus("Signed out of Nyora Sync.")
             }.onFailure { showStatus("Cloud sign-out failed: ${it.message}") }
             cloudSyncBusy = false
         }

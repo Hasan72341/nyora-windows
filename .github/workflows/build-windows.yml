@@ -59,20 +59,6 @@ jobs:
           "$env:RUNNER_TEMP\wix" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           Write-Host "WiX installed:"; Get-ChildItem "$env:RUNNER_TEMP\wix\candle.exe","$env:RUNNER_TEMP\wix\light.exe" | Format-List Name
 
-      # Bake the OAuth client secret into the packaged app's resources from an
-      # Actions secret. The file is gitignored and never committed — this is how
-      # the desktop Google sign-in token exchange gets its client secret on
-      # end-user machines (which have no env var / .env.sync).
-      - name: Bake OAuth secret
-        shell: pwsh
-        run: |
-          $dir = "desktopApp/src/main/resources"
-          New-Item -ItemType Directory -Force -Path $dir | Out-Null
-          "GOOGLE_CLIENT_SECRET=$env:GOOGLE_CLIENT_SECRET" | Out-File -FilePath "$dir/nyora-oauth.properties" -Encoding ascii
-          if ([string]::IsNullOrWhiteSpace($env:GOOGLE_CLIENT_SECRET)) { Write-Host "::warning::GOOGLE_CLIENT_SECRET secret is empty — Google sign-in will not work in this build." }
-        env:
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-
       - name: Package EXE installer
         shell: pwsh
         run: .\gradlew.bat --no-daemon :desktopApp:packageReleaseExe
