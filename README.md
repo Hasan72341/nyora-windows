@@ -37,13 +37,13 @@ A fast, free, ad-free, open-source manga reader for Windows — built from scrat
 |:-:|:-:|
 | ![Discover](docs/screenshots/discover.png)<br/>**Discover** — Trending titles surfaced the moment you open the app. | ![Explore](docs/screenshots/explore.png)<br/>**Explore** — Browse every installed source from one window. |
 | ![Library](docs/screenshots/library.png)<br/>**Library** — Your saved manga organised into custom categories. | ![Reader](docs/screenshots/reader.png)<br/>**Reader** — A clean, focused reader tuned for the desktop. |
-| ![Settings](docs/screenshots/settings.png)<br/>**Settings** — Reader, translation, trackers, sync and more — all in one place. | ![Cloud Sync](docs/screenshots/cloud-sync.png)<br/>**Cloud sync** — Sign in with Google to sync your library across every device. |
+| ![Settings](docs/screenshots/settings.png)<br/>**Settings** — Reader, translation, trackers, sync and more — all in one place. | ![Cloud Sync](docs/screenshots/cloud-sync.png)<br/>**Cloud sync** — Sign in with a free Nyora account to sync your library across every device. |
 
 ---
 
 ## About
 
-Nyora for Windows is a native desktop manga reader built with Compose Multiplatform for Kotlin. Browse hundreds of online sources, translate untranslated pages in place with built-in Windows OCR, download chapters for offline reading, and keep your library and progress in sync across every device with free Google cloud sync. It ships as a self-contained installer with its own bundled Java runtime — nothing else to install — and it is completely free, ad-free, tracking-free and open-source under Apache-2.0.
+Nyora for Windows is a native desktop manga reader built with Compose Multiplatform for Kotlin. Browse hundreds of online sources, translate untranslated pages in place with built-in Windows OCR, download chapters for offline reading, and keep your library and progress in sync across every device with free Nyora cloud sync. It ships as a self-contained installer with its own bundled Java runtime — nothing else to install — and it is completely free, ad-free, tracking-free and open-source under Apache-2.0.
 
 ## Why you'll love it
 
@@ -61,7 +61,7 @@ Nyora for Windows is a native desktop manga reader built with Compose Multiplatf
 | Translate | Whole-page AI translation using built-in Windows OCR, typeset back over the original art. |
 | Download | Save chapters to local disk and read fully offline — no connection required. |
 | Sources | Browse, search and filter across hundreds of online sources for manga, manhwa and manhua. |
-| Sync | Sign in with Google to sync your library, categories, history and exact reading progress across all platforms. |
+| Sync | Sign in with a free Nyora account (email + password) to sync your library, categories, history and exact reading progress across all platforms. |
 | Open-Source | Free, ad-free, no tracking, no account required to read — Apache-2.0, built from scratch, open to PRs. |
 
 ## Table of Contents
@@ -136,7 +136,7 @@ Browse, search and filter across **hundreds of online sources** covering **manga
 
 ### Cloud Sync
 
-Sign in with **Google** and your reading life follows you everywhere. Your library, custom categories, reading history, bookmarks and exact per-chapter reading progress sync across **Windows, macOS, Linux, Android, iOS and the Web**. Cloud sync is completely free, needs no extra account beyond the Google sign-in, and is entirely opt-in — close a chapter on your desktop and pick up at the exact same page on your phone, or never sign in at all and keep everything local.
+Create a free **Nyora account** with just an **email and password** and your reading life follows you everywhere. Your library, custom categories, reading history, bookmarks and exact per-chapter reading progress sync across **Windows, macOS, Linux, Android, iOS and the Web**. Sync is powered by **Nyora Cloud**, a self-hosted backend (OAuth2 + JWT) — no Google, no third-party account. Cloud sync is completely free and entirely opt-in — close a chapter on your desktop and pick up at the exact same page on your phone, or never sign in at all and keep everything local. Self-hosters can point sync at their own Nyora Cloud backend instead.
 
 ### Reader
 
@@ -163,7 +163,7 @@ What ships in the Windows build today.
 | Whole-page AI translation | Built-in Windows OCR |
 | Offline downloads | Yes |
 | Hundreds of online sources | Yes |
-| Free Google cloud sync | Yes |
+| Free Nyora cloud sync (email + password) | Yes |
 | Paged + Webtoon reader (LTR / RTL / vertical) | Yes |
 | Dynamic colour correction | Yes |
 | Custom categories, history, incognito | Yes |
@@ -180,7 +180,7 @@ What ships in the Windows build today.
 |:-:|:-:|
 | ![Discover](docs/screenshots/discover.png)<br/>**Discover** — Trending titles surfaced the moment you open the app. | ![Explore](docs/screenshots/explore.png)<br/>**Explore** — Browse every installed source from one window. |
 | ![Library](docs/screenshots/library.png)<br/>**Library** — Your saved manga organised into custom categories. | ![Reader](docs/screenshots/reader.png)<br/>**Reader** — A clean, focused reader tuned for the desktop. |
-| ![Settings](docs/screenshots/settings.png)<br/>**Settings** — Reader, translation, trackers, sync and more — all in one place. | ![Cloud Sync](docs/screenshots/cloud-sync.png)<br/>**Cloud sync** — Sign in with Google to sync your library across every device. |
+| ![Settings](docs/screenshots/settings.png)<br/>**Settings** — Reader, translation, trackers, sync and more — all in one place. | ![Cloud Sync](docs/screenshots/cloud-sync.png)<br/>**Cloud sync** — Sign in with a free Nyora account to sync your library across every device. |
 
 ## Installation
 
@@ -286,7 +286,7 @@ The whole-page translation pipeline leans on the operating system: **Windows OCR
 | iOS / iPadOS | [nyora-ios](https://github.com/Hasan72341/nyora-ios) | [sideload IPA](https://github.com/Hasan72341/nyora-ios/releases/latest) |
 | Web | [nyora-web](https://github.com/Hasan72341/nyora-web) | [nyoraweb.pages.dev](https://nyoraweb.pages.dev) |
 
-All platforms share one library through free Google cloud sync — translation is handled per platform using whatever runs best there (Windows OCR here, Apple Vision / Core ML on macOS and iOS).
+All platforms share one library through free Nyora Cloud sync — translation is handled per platform using whatever runs best there (Windows OCR here, Apple Vision / Core ML on macOS and iOS).
 
 ## Roadmap
 
@@ -302,7 +302,7 @@ Honest, near-term direction — no dates, no promises beyond what is already in 
 Yes — completely free, ad-free, and with no tracking. There is nothing to buy, no paid tier, and no premium upsell. The whole app is open-source under Apache-2.0.
 
 **Do I need an account?**
-No. You can browse, read, download and translate without signing in to anything. You only sign in with Google if you want free cloud sync across your devices — and even then, sync is fully opt-in.
+No. You can browse, read, download and translate without signing in to anything. You only create a free Nyora account (email + password) if you want cloud sync across your devices — and even then, sync is fully opt-in.
 
 **Is it safe? Why does Windows show a SmartScreen warning?**
 The warning appears because Nyora is independent, community-signed open-source software that SmartScreen hasn't yet seen downloaded by large numbers of people — it is a reputation prompt, not a malware verdict. Because the project is open-source, you can read every line on GitHub and even build the same installer yourself. Always download from the official [Releases page](https://github.com/Hasan72341/nyora-windows/releases/latest); to proceed, choose **More info → Run anyway**.
@@ -314,10 +314,10 @@ Not yet. The repository includes a full MSIX packaging system (`scripts/build-ms
 Nyora's translation uses the system `Windows.Media.Ocr` engine, which needs the **per-language OCR pack** installed in Windows. Install it from an elevated PowerShell with `Add-WindowsCapability -Online -Name 'Language.OCR~~~ja-JP~0.0.1.0'` (swap in `ko-KR`, `zh-Hans-CN`, etc.), then set that language as the translation source in Nyora's settings. Full steps and the GUI path are in [Translation language packs (OCR)](#translation-language-packs-ocr).
 
 **Will my data be private?**
-Yes. If you never sign in, nothing leaves your machine. Cloud sync is opt-in and tied to your own Google sign-in, and it mirrors only your library, categories, history, bookmarks and reading progress — not the manga files themselves. Incognito mode keeps a session off your history entirely. There are no ads and no tracking.
+Yes. If you never sign in, nothing leaves your machine. Cloud sync is opt-in and tied to your own Nyora Cloud account (email + password), and it mirrors only your library, categories, history, bookmarks and reading progress — not the manga files themselves. Incognito mode keeps a session off your history entirely. There are no ads and no tracking.
 
 **Are there ads or accounts required?**
-No ads, and no account is required to read. You only sign in with Google if you want free cloud sync across your devices.
+No ads, and no account is required to read. You only create a free Nyora account (email + password) if you want cloud sync across your devices.
 
 **Where does the manga come from? Is it legal?**
 Nyora itself hosts no content; it is a reader that browses hundreds of third-party online sources. Nyora is not affiliated with any of the manga sources it can access.
@@ -332,7 +332,7 @@ Nyora uses the **built-in Windows OCR** to detect text on a page, then translate
 Windows 10 and Windows 11 on 64-bit x64 and ARM64. There is no 32-bit build. The Mica backdrop and dark title bar polish apply on Windows 11. The installer bundles its own Java runtime, so no separate Java install is needed.
 
 **Can I contribute?**
-Yes — Nyora is fully open-source and PRs are welcome. The desktop app / UI layer lives in this repository, and the shared Kotlin engine **`nyora-shared`** (source parsers, the loopback REST server, the SQLDelight store, Supabase sync and the downloads manager) is open-source and public at [`nyora-shared`](https://github.com/Hasan72341/nyora-shared) (Apache-2.0). UI, packaging and native-polish work belongs here; engine and source-parser work belongs in `nyora-shared`. See [Contributing](#contributing) for how to get started.
+Yes — Nyora is fully open-source and PRs are welcome. The desktop app / UI layer lives in this repository, and the shared Kotlin engine **`nyora-shared`** (source parsers, the loopback REST server, the SQLDelight store, Nyora Cloud sync and the downloads manager) is open-source and public at [`nyora-shared`](https://github.com/Hasan72341/nyora-shared) (Apache-2.0). UI, packaging and native-polish work belongs here; engine and source-parser work belongs in `nyora-shared`. See [Contributing](#contributing) for how to get started.
 
 **How do I update?**
 Download the latest installer from the [Releases page](https://github.com/Hasan72341/nyora-windows/releases/latest) and run it over your existing install — your library and settings stay in place. Star or watch the repo to hear about new releases.
@@ -385,7 +385,7 @@ A quick map so you can navigate the app layer:
 | `desktopApp/src/main/kotlin/.../windows/translate/` | Whole-page translation — `WindowsOcr.kt`, `GoogleTranslate.kt`, `MangaTranslator.kt`. |
 | `desktopApp/src/main/kotlin/.../windows/bridge/` | The loopback REST client (`NyoraHttpClient.kt`) and DTOs that talk to the shared engine. |
 | `msix/`, `scripts/build-msix.ps1` | MSIX packaging for the Microsoft Store — `AppxManifest.xml`, visual assets, and the build/sign scripts. |
-| `nyora-shared/` | Open-source shared Kotlin engine (Git submodule, Apache-2.0). Source parsers, the loopback REST server, the SQLDelight store, Supabase sync and the downloads manager live here — PRs welcome at [`nyora-shared`](https://github.com/Hasan72341/nyora-shared). |
+| `nyora-shared/` | Open-source shared Kotlin engine (Git submodule, Apache-2.0). Source parsers, the loopback REST server, the SQLDelight store, Nyora Cloud sync and the downloads manager live here — PRs welcome at [`nyora-shared`](https://github.com/Hasan72341/nyora-shared). |
 | `docs/` | Screenshots, `WINDOWS.md` and `WINDOWS-STORE.md`. |
 
 ### Good first contributions
