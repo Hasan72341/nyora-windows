@@ -36,8 +36,10 @@ import com.nyora.windows.bridge.SupabaseStatusResponse
 import com.nyora.windows.bridge.SuggestionsResponse
 import com.nyora.windows.bridge.SyncSignInResponse
 import com.nyora.windows.ai.AiMode
+import com.nyora.windows.ai.AiEndpointPolicy
 import com.nyora.windows.ai.AiRefinement
 import com.nyora.windows.ai.WindowsAiRefiner
+import com.nyora.windows.translate.ColorizePageResult
 import com.nyora.windows.translate.MangaTranslator
 import com.nyora.windows.translate.PageTranslation
 import com.nyora.windows.ui.theme.AppearanceMode
@@ -55,10 +57,13 @@ import com.nyora.hasan72341.shared.scrobbling.ScrobblerManga
 import com.nyora.hasan72341.shared.scrobbling.ScrobblerOAuth
 import com.nyora.hasan72341.shared.scrobbling.ScrobblerRepository
 import com.nyora.hasan72341.shared.scrobbling.ScrobblerService
+import com.nyora.hasan72341.shared.scrobbling.ScrobblingStatus
 import com.nyora.hasan72341.shared.repository.UpdateRow
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -69,6 +74,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.FormBody
@@ -82,6 +88,9 @@ import java.net.InetSocketAddress
 import java.net.URI
 import java.net.URLDecoder
 import java.net.URLEncoder
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
@@ -107,7 +116,10 @@ class AppState(
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     val http = NyoraHttpClient(imageBaseUrl)
-    private val translator = MangaTranslator()
+    // Per-page colorized PNGs are transient app data, kept below Nyora's
+    // user-owned configuration directory rather than the shared system temp dir.
+    private val translator = MangaTranslator(File(configDir(), "cache/colorized-pages"))
+    private data class ReaderAiJob(val id: Long, val job: Job)
 
     // ── Navigation ────────────────────────────────────────────────────────────
     var destination by mutableStateOf(NavDest.EXPLORE)
@@ -173,6 +185,11 @@ class AppState(
     var readerChapter     by mutableStateOf<MangaChapter?>(null)
     var readerPages       by mutableStateOf<List<MangaPage>>(emptyList())
     var readerCurrentPage by mutableStateOf(0)
+    // Page-index groupings for the paged reader. Each inner list is one on-screen slot:
+    // a single page normally, or two pages in landscape double-page mode. Maintained by
+    // PagedReader (which knows the window orientation) and read by navigateEdgeAware so a
+    // click/key/swipe steps a whole spread. Empty ⇒ single-page ±1 stepping.
+    var readerSlots       by mutableStateOf<List<List<Int>>>(emptyList())
     var readerLoading     by mutableStateOf(false)
     var rtlReading        by mutableStateOf(false)
     var readerMode        by mutableStateOf(ReaderMode.PAGED)
@@ -199,6 +216,24 @@ class AppState(
     var translateBusy        by mutableStateOf(false)
     var translateUnavailable by mutableStateOf(false)
     var pageTranslations     by mutableStateOf<Map<Int, PageTranslation>>(emptyMap())
+    // "Fetch series context" — MangaBaka/AniList/Fandom character-name glossary (web engine.js).
+    var translateFandom      by mutableStateOf(false)
+    private var readerSessionGeneration = 0L
+    private var translationGeneration = 0L
+    private var nextReaderAiJobId = 0L
+    private var chapterTranslateJob: Job? = null
+    private val translationPageJobs = mutableMapOf<Int, ReaderAiJob>()
+
+    // ── On-device colorizer (web core/colorize) ─────────────────────────────────
+    var colorizeEnabled      by mutableStateOf(false)
+    var colorizeBusy         by mutableStateOf(false)
+    // reader page index → local file path of the coloured PNG (Coil renders it).
+    var colorizedPages       by mutableStateOf<Map<Int, String>>(emptyMap())
+    private var colorizeGeneration = 0L
+    private val colorizePageJobs = mutableMapOf<Int, ReaderAiJob>()
+    private var colorizeToggleCheckInFlight = false
+    private var colorizeModelDownloadJob: Job? = null
+    private var colorizeModelDownloadGeneration = 0L
 
     // ── AI refinement (polish the machine-translation draft) ────────────────────
     // Prefers on-device Windows AI (Phi Silica) when available, else a
@@ -208,6 +243,8 @@ class AppState(
     var byokBaseUrl        by mutableStateOf("https://api.openai.com/v1")
     var byokApiKey         by mutableStateOf("")
     var byokModel          by mutableStateOf("gpt-4o-mini")
+    /** Non-secret validation feedback shown beside the custom provider fields. */
+    var byokEndpointError  by mutableStateOf<String?>(null)
     var windowsAiAvailable by mutableStateOf<Boolean?>(null) // null = not yet probed
 
     // ── Library ───────────────────────────────────────────────────────────────
@@ -244,7 +281,18 @@ class AppState(
     val readerBackground: String get() = _readerBackground
     var showZoomButtons       by mutableStateOf(true)
     var twoPageLandscape      by mutableStateOf(false)
+    var webtoonSidePadding    by mutableStateOf(0.0)
     var autoHideControls      by mutableStateOf(true)
+
+    // Auto-scroll (matches nyora-mac). `autoScrollOn` is a per-session toggle;
+    // the 1..10 speed level persists. Webtoon = px/sec, paged = seconds/page.
+    var autoScrollOn    by mutableStateOf(false)
+    var autoScrollLevel by mutableStateOf(4)
+    fun toggleAutoScroll() { autoScrollOn = !autoScrollOn }
+    /** Webtoon continuous speed: 24 .. 258 px/sec across levels 1..10. */
+    val autoScrollPxPerSec: Double get() = 24 + (autoScrollLevel - 1) * 26.0
+    /** Paged auto-advance delay: ~8.7s .. 1.7s across levels 1..10. */
+    val autoScrollPagedDelay: Double get() = maxOf(1.5, 9.5 - autoScrollLevel * 0.78)
     var keepScreenOn          by mutableStateOf(false)
     var descriptionCollapse   by mutableStateOf(true)
     var gridSize              by mutableStateOf(160)
@@ -308,6 +356,10 @@ class AppState(
     // the account (the self-hosted JWT carries no email claim, so the server
     // status can't supply it).
     var cloudEmail      by mutableStateOf("")
+    // Set after auth when this device already has library data — the Welcome screen
+    // then asks the user to Merge (push+pull) or Replace (restore-from-cloud), instead
+    // of silently merging. Mirrors nyora-mac's "Local Data Detected" dialog.
+    var cloudConflictPending by mutableStateOf(false)
 
     /** First-run start page gate — true until the user finishes onboarding (signs in
      *  or taps "Continue as guest"), tracked by a marker file under the config dir. */
@@ -350,6 +402,66 @@ class AppState(
     var trackerLoginUrl by mutableStateOf<String?>(null)
         private set
 
+    // Per-manga tracker links: mangaId -> (serviceSlug -> remote media id). Persisted
+    // to trackerLinks.json. Lets the reader scrobble progress to the right remote entry
+    // without re-searching. Mirrors nyora-mac's TrackerSettings link map.
+    var trackerLinks by mutableStateOf<Map<String, Map<String, Long>>>(emptyMap())
+        private set
+    /** Push chapter progress to linked trackers when a chapter is opened (Mac parity). */
+    var scrobbleOnRead by mutableStateOf(true)
+
+    @kotlinx.serialization.Serializable
+    private data class TrackerLinksDto(val links: Map<String, Map<String, Long>> = emptyMap())
+
+    private fun trackerLinksFile() = File(configDir(), "trackerLinks.json")
+
+    private fun loadTrackerLinks() {
+        runCatching {
+            val f = trackerLinksFile()
+            if (f.exists()) trackerLinks = prefsJson.decodeFromString(TrackerLinksDto.serializer(), f.readText()).links
+        }
+    }
+
+    private fun saveTrackerLinks() {
+        val snapshot = trackerLinks
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                val d = configDir(); if (!d.exists()) d.mkdirs()
+                trackerLinksFile().writeText(prefsJson.encodeToString(TrackerLinksDto.serializer(), TrackerLinksDto(snapshot)))
+            }
+        }
+    }
+
+    /** Remote-id links for [mangaId], keyed by service slug. */
+    fun linkedTrackers(mangaId: String): Map<String, Long> = trackerLinks[mangaId].orEmpty()
+
+    /** Link [mangaId] to a remote entry [remoteId] on [slug], and scrobble the current page. */
+    fun linkTracker(mangaId: String, slug: String, remoteId: Long) {
+        trackerLinks = trackerLinks + (mangaId to (linkedTrackers(mangaId) + (slug to remoteId)))
+        saveTrackerLinks()
+        showStatus("Tracking linked.")
+    }
+
+    fun unlinkTracker(mangaId: String, slug: String) {
+        val next = linkedTrackers(mangaId) - slug
+        trackerLinks = if (next.isEmpty()) trackerLinks - mangaId else trackerLinks + (mangaId to next)
+        saveTrackerLinks()
+    }
+
+    /** Push [chapter] as read progress to every tracker linked for [mangaId]. */
+    fun scrobbleChapter(mangaId: String, chapter: Int) {
+        if (!scrobbleOnRead || chapter <= 0) return
+        val links = linkedTrackers(mangaId)
+        if (links.isEmpty()) return
+        scope.launch(Dispatchers.IO) {
+            links.forEach { (slug, remoteId) ->
+                val scrobbler = scrobblerRepo.bySlug(slug) ?: return@forEach
+                if (!runCatching { scrobbler.isAuthorized }.getOrDefault(false)) return@forEach
+                runCatching { scrobbler.updateProgress(remoteId, chapter, ScrobblingStatus.READING, null, null) }
+            }
+        }
+    }
+
     // ── Status banner ─────────────────────────────────────────────────────────
     var statusMessage by mutableStateOf<String?>(null)
 
@@ -358,6 +470,7 @@ class AppState(
 
     init {
         loadPrefs()
+        loadTrackerLinks()
         loadSources()
         refreshLibrary()
         checkRemoteActivation()
@@ -812,6 +925,10 @@ class AppState(
         val src = source ?: sourceFor(manga) ?: run {
             showStatus("Source not installed"); return
         }
+        // Invalidate all reader-AI work before changing the chapter identity.
+        // A completed OCR/colorizer task may otherwise attach an old page result
+        // to the same index in the newly opened chapter.
+        beginReaderAiSession()
         activeSource = src
         readerManga = manga
         readerChapter = chapter
@@ -819,12 +936,13 @@ class AppState(
         readerCurrentPage = 0
         readerLoading = true
         showReader = true
-        // Translations are per-chapter/page-index — drop the old ones, but keep
-        // [translateEnabled] so the user's toggle persists across chapters.
-        pageTranslations = emptyMap()
+        // Translation/colorizer toggles remain enabled across chapters, while the
+        // per-page results were cleared above with their in-flight work.
         // Apply any persisted per-manga reader prefs (mode + colour correction)
         // before the pages load so the reader paints with the right look.
         loadMangaPrefs(manga.id)
+        // Scrobble this chapter's progress to any linked trackers (Mac parity).
+        runCatching { scrobbleChapter(manga.id, chapter.number.toInt()) }
         scope.launch {
             // Restore last position
             val saved = withContext(Dispatchers.IO) {
@@ -954,8 +1072,9 @@ class AppState(
     fun recordReaderPage(page: Int) {
         readerCurrentPage = page
         checkPageBookmark()
-        // Kick off translation of the new page on demand when enabled.
+        // Kick off translation / colorization of the new page on demand when enabled.
         if (translateEnabled) translatePage(page)
+        if (colorizeEnabled) colorizePage(page)
         if (incognito) return
         val m = readerManga ?: return
         val c = readerChapter ?: return
@@ -991,6 +1110,54 @@ class AppState(
         }
     }
 
+    private fun isCurrentReaderPage(
+        session: Long,
+        chapterId: String,
+        index: Int,
+        page: MangaPage,
+    ): Boolean =
+        readerSessionGeneration == session &&
+            readerChapter?.id == chapterId &&
+            readerPages.getOrNull(index) == page
+
+    /** Cancel old chapter work before replacing reader identity or closing it. */
+    private fun beginReaderAiSession() {
+        readerSessionGeneration++
+        invalidateTranslationWork(clearCachedPages = true)
+        invalidateColorizeWork(clearCachedPages = true)
+    }
+
+    /**
+     * Close the reader through one path so queued OCR/colorizer work cannot keep
+     * downloading, inferencing, or publish a result after the reader is gone.
+     */
+    fun closeReader() {
+        if (!showReader) return
+        beginReaderAiSession()
+        showReader = false
+    }
+
+    private fun invalidateTranslationWork(clearCachedPages: Boolean) {
+        translationGeneration++
+        chapterTranslateJob?.cancel()
+        chapterTranslateJob = null
+        translationPageJobs.values.forEach { it.job.cancel() }
+        translationPageJobs.clear()
+        translateBusy = false
+        if (clearCachedPages) pageTranslations = emptyMap()
+    }
+
+    private fun invalidateColorizeWork(clearCachedPages: Boolean) {
+        colorizeGeneration++
+        colorizePageJobs.values.forEach { it.job.cancel() }
+        colorizePageJobs.clear()
+        colorizeBusy = false
+        if (clearCachedPages) {
+            colorizedPages = emptyMap()
+            translator.clearColorizedPageCache()
+        }
+    }
+
     // ── In-image translation ────────────────────────────────────────────────────
     //
     // OCR + machine translation of a single reader page. Results are cached by
@@ -1005,32 +1172,273 @@ class AppState(
      * flips [translateUnavailable] and surfaces a hint instead of crashing.
      */
     fun translatePage(index: Int) {
-        if (index !in readerPages.indices) return
+        val page = readerPages.getOrNull(index) ?: return
+        val chapterId = readerChapter?.id ?: return
         if (pageTranslations.containsKey(index)) return
+        if (translationPageJobs[index]?.job?.isActive == true) return
+
+        val readerSession = readerSessionGeneration
+        val translationSession = translationGeneration
+        val source = translateLangs
+        val target = translateTarget
+        val fandom = translateFandom
+        val title = selectedManga?.title.orEmpty()
+        // A saved/session key must not silently opt a reader into remote AI while
+        // the user selected "Off" or on-device Windows AI. Invalid endpoints are
+        // also excluded here, in addition to the client-side policy check.
+        val refineCfg = byokApiKey.takeIf {
+            aiMode == AiMode.BYOK && it.isNotBlank() && byokEndpointError == null
+        }?.let { apiKey ->
+            com.nyora.windows.ai.onnx.MangaMt.RefineCfg(
+                provider = if (byokBaseUrl.contains("anthropic", true) || byokModel.startsWith("claude", true)) "anthropic" else "openai",
+                endpoint = byokBaseUrl,
+                apiKey = apiKey,
+                model = byokModel,
+                context = null,
+            )
+        }
+        val requestUrl = proxyUrl(page)
+        val jobId = ++nextReaderAiJobId
         translateBusy = true
-        scope.launch {
-            runCatching {
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            try {
                 val res = withContext(Dispatchers.IO) {
-                    val refiner = AiRefinement.resolve(aiMode, byokBaseUrl, byokApiKey, byokModel)
-                    translator.translatePageImage(
-                        proxyUrl(readerPages[index]), translateLangs, translateTarget, refiner,
+                    translator.translatePageImageOnnx(
+                        requestUrl, source, target, refineCfg, title, fandom,
                     )
                 }
+                if (
+                    !translateEnabled ||
+                    translationGeneration != translationSession ||
+                    !isCurrentReaderPage(readerSession, chapterId, index, page)
+                ) return@launch
                 if (!res.ocrAvailable) {
                     translateUnavailable = true
-                    showStatus("Windows OCR unavailable — add a Windows OCR language pack (Settings ▸ Time & language)")
+                    showStatus("Translation models not downloaded — get them in Settings ▸ Translation")
                 } else {
                     pageTranslations = pageTranslations + (index to res)
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                // OCR/translation is optional. Keep the reader usable on failures.
+            } finally {
+                if (translationPageJobs[index]?.id == jobId) {
+                    translationPageJobs.remove(index)
+                    translateBusy = translationPageJobs.isNotEmpty()
+                }
             }
-            translateBusy = false
         }
+        translationPageJobs[index] = ReaderAiJob(jobId, job)
+        job.start()
     }
 
     /** Flips translation on/off; translates the current page when turning on. */
     fun toggleTranslate() {
         translateEnabled = !translateEnabled
-        if (translateEnabled) translatePage(readerCurrentPage)
+        if (translateEnabled) translateWholeChapter() else invalidateTranslationWork(clearCachedPages = false)
+    }
+
+    /**
+     * Proactively OCR-translate every page of the open chapter in the background
+     * (current page first, one at a time to stay light) so flipping through a
+     * translated chapter is instant — parity with nyora-mac ChapterTranslator.
+     * Reuses [translatePage]'s per-index cache, so nothing is translated twice.
+     */
+    fun translateWholeChapter() {
+        chapterTranslateJob?.cancel()
+        val total = readerPages.size
+        if (total == 0) return
+        val start = readerCurrentPage.coerceIn(0, total - 1)
+        val order = (start until total).toList() + (0 until start).toList()
+        val translationSession = translationGeneration
+        val readerSession = readerSessionGeneration
+        chapterTranslateJob = scope.launch {
+            for (idx in order) {
+                if (!translateEnabled || translationGeneration != translationSession || readerSessionGeneration != readerSession) break
+                if (pageTranslations.containsKey(idx)) continue
+                translatePage(idx)
+                var waited = 0
+                while (
+                    !pageTranslations.containsKey(idx) &&
+                    translateEnabled &&
+                    translationGeneration == translationSession &&
+                    readerSessionGeneration == readerSession &&
+                    waited < 120
+                ) {
+                    delay(250); waited++
+                }
+            }
+        }
+    }
+
+    /**
+     * Flips the on-device colorizer on/off. Enabling is intentionally model-gated:
+     * the reader never starts an implicit 62 MB download just because a toggle was
+     * tapped. The SHA-256 check runs off the UI thread because it reads the model.
+     */
+    fun toggleColorize() {
+        if (colorizeEnabled) {
+            colorizeEnabled = false
+            invalidateColorizeWork(clearCachedPages = false)
+            return
+        }
+        if (colorizeToggleCheckInFlight) return
+        colorizeToggleCheckInFlight = true
+        scope.launch {
+            val ready = withContext(Dispatchers.IO) {
+                runCatching { com.nyora.windows.ai.onnx.OnnxColorizer.isReady() }.getOrDefault(false)
+            }
+            colorizeToggleCheckInFlight = false
+            onnxColorizeReady = ready
+            if (!ready) {
+                showStatus("Download the Colorizer model in Settings ▸ Colorize before enabling it.")
+                return@launch
+            }
+            colorizeEnabled = true
+            colorizePage(readerCurrentPage)
+        }
+    }
+
+    /** Colorize the page at [index] and cache the resulting PNG path (web core/colorize). */
+    fun colorizePage(index: Int) {
+        val page = readerPages.getOrNull(index) ?: return
+        val chapterId = readerChapter?.id ?: return
+        colorizedPages[index]?.let { path ->
+            if (translator.hasColorizedPage(path)) return
+            colorizedPages = colorizedPages - index
+        }
+        if (colorizePageJobs[index]?.job?.isActive == true) return
+
+        val readerSession = readerSessionGeneration
+        val colorizeSession = colorizeGeneration
+        val requestUrl = proxyUrl(page)
+        val jobId = ++nextReaderAiJobId
+        colorizeBusy = true
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    translator.colorizePageImage(requestUrl)
+                }
+                if (
+                    !colorizeEnabled ||
+                    colorizeGeneration != colorizeSession ||
+                    !isCurrentReaderPage(readerSession, chapterId, index, page)
+                ) {
+                    (result as? ColorizePageResult.Success)?.let { translator.discardColorizedPage(it.path) }
+                    return@launch
+                }
+                when (result) {
+                    is ColorizePageResult.Success -> {
+                        colorizedPages = colorizedPages + (index to result.path)
+                    }
+                    ColorizePageResult.ModelUnavailable -> {
+                        // The model can be removed between the toggle's gate and
+                        // the actual page job; leave the original page visible.
+                        colorizeEnabled = false
+                        onnxColorizeReady = false
+                        invalidateColorizeWork(clearCachedPages = false)
+                        showStatus("Colorizer model is unavailable — download it in Settings ▸ Colorize.")
+                    }
+                    ColorizePageResult.InputTooLarge -> {
+                        showStatus("This page is too large or too tall to colorize safely.")
+                    }
+                    ColorizePageResult.Failed -> {
+                        showStatus("Couldn’t colorize this page; the original is still shown.")
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                // Colorization is optional; retain the original page on failures.
+            } finally {
+                if (colorizePageJobs[index]?.id == jobId) {
+                    colorizePageJobs.remove(index)
+                    colorizeBusy = colorizePageJobs.isNotEmpty()
+                }
+            }
+        }
+        colorizePageJobs[index] = ReaderAiJob(jobId, job)
+        job.start()
+    }
+
+    /** Coil model for a reader page: the coloured PNG when colorize is on and ready,
+     *  else the normal header-injecting image-proxy URL. */
+    fun pageDisplayModel(index: Int): Any? =
+        if (colorizeEnabled) {
+            colorizedPages[index]
+                ?.takeIf { translator.hasColorizedPage(it) }
+                ?.let(::File)
+                ?: proxyUrl(readerPages[index])
+        }
+        else proxyUrl(readerPages[index])
+
+    // ── On-device ONNX model management (translation vision stack + colorizer) ───
+    var onnxTranslateReady by mutableStateOf(false)
+    var onnxColorizeReady  by mutableStateOf(false)
+    var onnxDownloadLabel  by mutableStateOf<String?>(null) // e.g. "Colorizer 42%" while downloading
+
+    private fun onnxSrc(s: String) = when {
+        s.startsWith("zh") -> "zh"; s.startsWith("ko") -> "ko"; s.startsWith("en") -> "en"; else -> "ja"
+    }
+
+    /** Refresh the "models downloaded?" flags the Settings/reader gates read. */
+    fun refreshOnnxReady() {
+        scope.launch {
+            val src = onnxSrc(translateLangs)
+            val (translateReady, colorizeReady) = withContext(Dispatchers.IO) {
+                val ocr = if (src == "ja") com.nyora.windows.ai.onnx.MangaOcr.isReady()
+                          else com.nyora.windows.ai.onnx.PaddleOcr.isReady(src)
+                (com.nyora.windows.ai.onnx.OnnxDetector.isReady() && ocr) to
+                    com.nyora.windows.ai.onnx.OnnxColorizer.isReady()
+            }
+            onnxTranslateReady = translateReady
+            onnxColorizeReady = colorizeReady
+        }
+    }
+
+    /** Download the colorizer model (~62 MB) with progress. */
+    fun downloadColorizeModel() {
+        if (colorizeModelDownloadJob?.isActive == true) return
+        val generation = ++colorizeModelDownloadGeneration
+        colorizeModelDownloadJob = scope.launch {
+            onnxDownloadLabel = "Colorizer 0%"
+            val failure = withContext(Dispatchers.IO) {
+                runCatching {
+                    com.nyora.windows.ai.onnx.OnnxColorizer.downloadModel { progress ->
+                        // ONNX download callbacks run on an IO thread; publish
+                        // Compose state only through the AppState main scope.
+                        scope.launch {
+                            if (generation == colorizeModelDownloadGeneration) {
+                                onnxDownloadLabel = "Colorizer $progress%"
+                            }
+                        }
+                    }
+                }.exceptionOrNull()
+            }
+            if (failure != null) showStatus("Colorizer download failed: ${failure.message}")
+            if (generation == colorizeModelDownloadGeneration) {
+                // Invalidate any callback already queued on the main dispatcher
+                // before clearing the label, so it cannot resurrect stale progress.
+                onnxDownloadLabel = null
+                colorizeModelDownloadGeneration++
+            }
+            refreshOnnxReady()
+        }
+    }
+
+    /** Download the translation vision models (detector + the OCR for the source language). */
+    fun downloadTranslateModels() {
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                com.nyora.windows.ai.onnx.OnnxDetector.downloadModel { onnxDownloadLabel = "Bubble detector $it%" }
+                val src = onnxSrc(translateLangs)
+                if (src == "ja") com.nyora.windows.ai.onnx.MangaOcr.downloadModels { onnxDownloadLabel = "Japanese OCR $it%" }
+                else com.nyora.windows.ai.onnx.PaddleOcr.downloadModels(src) { onnxDownloadLabel = "OCR ($src) $it%" }
+            }.onFailure { showStatus("Model download failed: ${it.message}") }
+            onnxDownloadLabel = null
+            refreshOnnxReady()
+        }
     }
 
     /**
@@ -1041,7 +1449,7 @@ class AppState(
     fun changeTranslateTarget(t: String) {
         if (t == translateTarget) return
         translateTarget = t
-        pageTranslations = emptyMap()
+        invalidateTranslationWork(clearCachedPages = true)
         if (translateEnabled) translatePage(readerCurrentPage)
     }
 
@@ -1054,7 +1462,7 @@ class AppState(
     fun changeTranslateLangs(langs: String) {
         if (langs == translateLangs) return
         translateLangs = langs
-        pageTranslations = emptyMap()
+        invalidateTranslationWork(clearCachedPages = true)
         if (translateEnabled) translatePage(readerCurrentPage)
     }
 
@@ -1076,9 +1484,14 @@ class AppState(
     }
 
     fun setByok(baseUrl: String, apiKey: String, model: String) {
-        byokBaseUrl = baseUrl
+        byokBaseUrl = baseUrl.trim()
+        byokEndpointError = AiEndpointPolicy.validationError(byokBaseUrl)
+        // Secrets deliberately live only in memory for this app session. Endpoint
+        // and model preferences remain persisted below; savePrefs never serializes
+        // this value.
         byokApiKey = apiKey
         byokModel = model
+        invalidateTranslationWork(clearCachedPages = true)
         savePrefs()
     }
 
@@ -1280,6 +1693,16 @@ class AppState(
         }
     }
 
+    /** Purge finished (completed/failed/cancelled) rows server-side, then refresh. */
+    fun clearFinishedDownloads() {
+        scope.launch {
+            runCatching {
+                http.post("/downloads/clear")
+                loadDownloads()
+            }
+        }
+    }
+
     private fun startPollingDownloads() {
         if (downloadsPolling) return
         downloadsPolling = true
@@ -1317,6 +1740,7 @@ class AppState(
                 val pages = info.pageUrls.map { url ->
                     com.nyora.hasan72341.shared.model.MangaPage(url = url)
                 }
+                beginReaderAiSession()
                 readerManga = com.nyora.hasan72341.shared.model.Manga(
                     id = "local:${path.hashCode()}",
                     title = info.name,
@@ -1491,7 +1915,10 @@ class AppState(
                 if (WindowsNative.isWindows) _accent = Accent.SYSTEM
                 return
             }
-            val dto = prefsJson.decodeFromString<AppPrefs>(f.readText())
+            val raw = f.readText()
+            val root = prefsJson.parseToJsonElement(raw).jsonObject
+            val hasLegacyByokKey = root.containsKey("byokApiKey")
+            val dto = prefsJson.decodeFromString<AppPrefs>(raw)
             _appearance = runCatching { AppearanceMode.valueOf(dto.appearance) }.getOrDefault(AppearanceMode.DARK)
             _accent     = runCatching { Accent.valueOf(dto.accent) }.getOrDefault(Accent.SYSTEM)
             _anilistToken = dto.anilistToken
@@ -1504,7 +1931,9 @@ class AppState(
             _readerBackground    = dto.readerBackground
             showZoomButtons      = dto.showZoomButtons
             twoPageLandscape     = dto.twoPageLandscape
+            webtoonSidePadding   = dto.webtoonSidePadding
             autoHideControls     = dto.autoHideControls
+            autoScrollLevel      = dto.autoScrollLevel
             keepScreenOn         = dto.keepScreenOn
             descriptionCollapse  = dto.descriptionCollapse
             gridSize             = dto.gridSize
@@ -1520,7 +1949,10 @@ class AppState(
             // AI refinement
             aiMode               = runCatching { AiMode.valueOf(dto.aiMode) }.getOrDefault(AiMode.OFF)
             byokBaseUrl          = dto.byokBaseUrl
-            byokApiKey           = dto.byokApiKey
+            byokEndpointError    = AiEndpointPolicy.validationError(byokBaseUrl)
+            // API keys are intentionally session-only. Legacy values are never
+            // loaded back into memory and are scrubbed from disk immediately.
+            byokApiKey           = ""
             byokModel            = dto.byokModel
             // Privacy
             _incognito           = dto.incognito
@@ -1532,8 +1964,42 @@ class AppState(
             repositoryUrl        = dto.repositoryUrl
             repositorySourceIds  = dto.repositorySourceIds
             sourcesGate?.set(repositoryActive)
+
+            if (hasLegacyByokKey) {
+                if (!scrubLegacyByokApiKey(f, root)) {
+                    showStatus("A legacy saved AI key could not be removed from preferences; close Nyora and check its config folder.")
+                }
+            }
         }
     }
+
+    /**
+     * Remove the historical plaintext API-key field atomically. It is never
+     * loaded into [byokApiKey], and a failed rewrite leaves the original prefs
+     * intact rather than risking corruption of unrelated settings.
+     */
+    private fun scrubLegacyByokApiKey(file: File, root: JsonObject): Boolean = runCatching {
+        val parent = file.parentFile ?: return@runCatching false
+        if (!parent.isDirectory) return@runCatching false
+        val sanitized = JsonObject(root.filterKeys { it != "byokApiKey" }).toString()
+        val temporary = Files.createTempFile(parent.toPath(), "appPrefs-", ".json")
+        try {
+            Files.writeString(temporary, sanitized)
+            try {
+                Files.move(
+                    temporary,
+                    file.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(temporary, file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
+            true
+        } finally {
+            runCatching { Files.deleteIfExists(temporary) }
+        }
+    }.getOrDefault(false)
 
     private fun savePrefs() {
         scope.launch(Dispatchers.IO) {
@@ -1553,7 +2019,9 @@ class AppState(
                     readerBackground = readerBackground,
                     showZoomButtons = showZoomButtons,
                     twoPageLandscape = twoPageLandscape,
+                    webtoonSidePadding = webtoonSidePadding,
                     autoHideControls = autoHideControls,
+                    autoScrollLevel = autoScrollLevel,
                     keepScreenOn = keepScreenOn,
                     descriptionCollapse = descriptionCollapse,
                     gridSize = gridSize,
@@ -1569,7 +2037,6 @@ class AppState(
                     // AI refinement
                     aiMode = aiMode.name,
                     byokBaseUrl = byokBaseUrl,
-                    byokApiKey = byokApiKey,
                     byokModel = byokModel,
                     // Privacy
                     incognito = incognito,
@@ -1922,17 +2389,44 @@ class AppState(
                     http.get("/supabase/has-local-data"),
                 ).hasLocalData
                 if (hasLocalData) {
-                    authMessage = "Syncing your library…"
-                    requireSupabaseOk(http.post("/supabase/sync"), "Nyora Sync failed")
-                } else {
-                    authMessage = "Setting up your library…"
-                    requireSupabaseOk(http.post("/supabase/restore-from-cloud"), "Nyora Sync restore failed")
+                    // Local data present — let the user choose (Mac parity) instead of
+                    // silently merging. The Welcome screen shows the Merge/Replace dialog.
+                    cloudSyncStatus = fetchCloudSyncStatus()
+                    authMessage = "You already have a library on this device."
+                    cloudConflictPending = true
+                    cloudSyncBusy = false
+                    return@launch
                 }
+                // Fresh device — pull the cloud library down.
+                authMessage = "Setting up your library…"
+                requireSupabaseOk(http.post("/supabase/restore-from-cloud"), "Nyora Sync restore failed")
                 refreshLibrary()
                 cloudSyncStatus = fetchCloudSyncStatus()
                 authMessage = if (register) "Account created — you're all set." else "Signed in — sync is ready."
                 showStatus(authMessage!!)
             }.onFailure { authMessage = friendlyAuthError(it.message, register) }
+            cloudSyncBusy = false
+        }
+    }
+
+    /**
+     * Resolve the post-sign-in "local data detected" choice (Mac parity). [replace] =
+     * discard local and pull the cloud library; otherwise merge (push + pull).
+     */
+    fun cloudResolveConflict(replace: Boolean) {
+        if (cloudSyncBusy) return
+        cloudConflictPending = false
+        scope.launch {
+            cloudSyncBusy = true
+            runCatching {
+                authMessage = if (replace) "Restoring your cloud library…" else "Merging your libraries…"
+                val path = if (replace) "/supabase/restore-from-cloud" else "/supabase/sync"
+                requireSupabaseOk(http.post(path), "Nyora Sync failed")
+                refreshLibrary()
+                cloudSyncStatus = fetchCloudSyncStatus()
+                authMessage = "Signed in — sync is ready."
+                showStatus(authMessage!!)
+            }.onFailure { authMessage = "Nyora Sync failed: ${it.message}" }
             cloudSyncBusy = false
         }
     }
@@ -2140,7 +2634,9 @@ class AppState(
         val readerBackground: String = "auto",
         val showZoomButtons: Boolean = true,
         val twoPageLandscape: Boolean = false,
+        val webtoonSidePadding: Double = 0.0,
         val autoHideControls: Boolean = true,
+        val autoScrollLevel: Int = 4,
         val keepScreenOn: Boolean = false,
         val descriptionCollapse: Boolean = true,
         val gridSize: Int = 160,
@@ -2156,7 +2652,6 @@ class AppState(
         // AI refinement
         val aiMode: String = AiMode.OFF.name,
         val byokBaseUrl: String = "https://api.openai.com/v1",
-        val byokApiKey: String = "",
         val byokModel: String = "gpt-4o-mini",
         // Privacy
         val incognito: Boolean = false,

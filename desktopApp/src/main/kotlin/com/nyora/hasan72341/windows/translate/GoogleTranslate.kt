@@ -1,5 +1,7 @@
 package com.nyora.windows.translate
 
+import com.nyora.windows.ai.AiResponseReader
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -48,7 +50,7 @@ object GoogleTranslate {
                     .build()
                 http.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) return@use text
-                    val body = response.body?.string() ?: return@use text
+                    val body = AiResponseReader.readUtf8(response.body) ?: return@use text
                     // Response shape: [[["Hello","こんにちは",null,...], ...], null, "ja"]
                     val segments = json.parseToJsonElement(body).jsonArray[0].jsonArray
                     val sb = StringBuilder()
@@ -58,7 +60,10 @@ object GoogleTranslate {
                     }
                     sb.toString()
                 }
-            }.getOrDefault(text)
+            }.getOrElse { error ->
+                if (error is CancellationException) throw error
+                text
+            }
         }
     }
 

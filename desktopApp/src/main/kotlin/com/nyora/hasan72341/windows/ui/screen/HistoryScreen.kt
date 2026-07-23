@@ -7,6 +7,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
@@ -23,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import com.nyora.windows.AppState
 import com.nyora.windows.ui.theme.AnimeAsyncImage
 import com.nyora.windows.ui.theme.LocalNyoraAccent
+import com.nyora.windows.ui.theme.NyoraScrollContainer
 import com.nyora.windows.ui.theme.NyoraTokens
 import com.nyora.windows.ui.theme.SectionHeader
 import com.nyora.windows.ui.theme.SystemTag
@@ -136,25 +139,33 @@ fun HistoryScreen(state: AppState) {
             modifier = Modifier.padding(bottom = 32.dp),
         )
 
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 300.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+        val gridState = rememberLazyGridState()
+        NyoraScrollContainer(
+            adapter = rememberScrollbarAdapter(gridState),
             modifier = Modifier.fillMaxWidth().weight(1f),
         ) {
-            items(
-                items = listItems,
-                // Headers span all columns; cards take one cell each.
-                span = { item ->
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 300.dp),
+                state = gridState,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                contentPadding = PaddingValues(end = 10.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(
+                    items = listItems,
+                    // Headers span all columns; cards take one cell each.
+                    span = { item ->
+                        when (item) {
+                            is HistoryListItem.Header -> GridItemSpan(maxLineSpan)
+                            is HistoryListItem.Card   -> GridItemSpan(1)
+                        }
+                    },
+                ) { item ->
                     when (item) {
-                        is HistoryListItem.Header -> GridItemSpan(maxLineSpan)
-                        is HistoryListItem.Card   -> GridItemSpan(1)
+                        is HistoryListItem.Header -> HistoryGroupHeader(item.label)
+                        is HistoryListItem.Card   -> HistoryBentoCard(item.row, state)
                     }
-                },
-            ) { item ->
-                when (item) {
-                    is HistoryListItem.Header -> HistoryGroupHeader(item.label)
-                    is HistoryListItem.Card   -> HistoryBentoCard(item.row, state)
                 }
             }
         }

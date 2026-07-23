@@ -1,6 +1,7 @@
 package com.nyora.windows.translate
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -11,8 +12,10 @@ import java.awt.image.BufferedImage
 import java.awt.image.ColorConvertOp
 import java.awt.image.RescaleOp
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.nio.file.Files
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.imageio.ImageIO
 
 /** A merged speech-bubble text block detected by OCR, in ORIGINAL image pixel coordinates. */
@@ -48,6 +51,8 @@ data class OcrBox(
 object WindowsOcr {
 
     private val json = Json { ignoreUnknownKeys = true }
+    private const val MAX_PROCESS_OUTPUT_BYTES = 1 * 1024 * 1024
+    private const val TERMINATE_GRACE_SECONDS = 3L
 
     /** Windows PowerShell hosts to probe, in order. PowerShell 7 (`pwsh`) lacks
      *  the WinRT projection the OCR script relies on, so it is intentionally not
@@ -58,16 +63,23 @@ object WindowsOcr {
         "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
     )
 
-    /** The bundled OCR script, extracted to a temp file once per process. */
-    private val scriptPath: String? by lazy {
-        runCatching {
+    /**
+     * Extract the bundled OCR script for one invocation. The caller deletes it in
+     * a finally block once PowerShell exits, avoiding process-lifetime temp files.
+     */
+    private fun extractScript(): java.nio.file.Path? {
+        return runCatching {
             val text = WindowsOcr::class.java.getResourceAsStream("/windows_ocr.ps1")
                 ?.bufferedReader()?.use { it.readText() }
                 ?: return@runCatching null
             val tmp = Files.createTempFile("nyora_win_ocr_", ".ps1")
-            tmp.toFile().deleteOnExit()
-            Files.writeString(tmp, text)
-            tmp.toAbsolutePath().toString()
+            try {
+                Files.writeString(tmp, text)
+                tmp
+            } catch (t: Throwable) {
+                runCatching { Files.deleteIfExists(tmp) }
+                throw t
+            }
         }.getOrNull()
     }
 
@@ -108,49 +120,118 @@ object WindowsOcr {
         lang: String = "ja",
     ): Pair<List<OcrBox>, Boolean> = withContext(Dispatchers.IO) {
         val host = findHost() ?: return@withContext Pair(emptyList(), false)
-        val script = scriptPath ?: return@withContext Pair(emptyList(), false)
+        val script = extractScript() ?: return@withContext Pair(emptyList(), false)
 
-        runCatching {
-            val original = ImageIO.read(ByteArrayInputStream(imageBytes))
-                ?: return@runCatching Pair(emptyList<OcrBox>(), true)
-            val imgW = original.width
-            val imgH = original.height
-            if (imgW <= 0 || imgH <= 0) return@runCatching Pair(emptyList<OcrBox>(), true)
-
-            // Avoid blowing past the OCR engine's max dimension on tall webtoon pages.
-            val scale = if (maxOf(imgW, imgH) * 1.5f > 4000f) 1.0f else 1.5f
-            val preprocessed = preprocess(original, scale)
-
-            val tmp = Files.createTempFile("nyora_ocr_", ".png")
-            try {
-                ImageIO.write(preprocessed, "png", tmp.toFile())
-
-                val process = ProcessBuilder(
-                    host,
-                    "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-                    "-File", script,
-                    "-ImagePath", tmp.toAbsolutePath().toString(),
-                    "-Lang", lang,
-                ).redirectErrorStream(true).start()
-
-                val stdout = process.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-                if (!process.waitFor(60, TimeUnit.SECONDS)) {
-                    process.destroyForcibly()
-                    return@runCatching Pair(emptyList<OcrBox>(), true)
-                }
-
-                val payload = parsePayload(stdout)
+        try {
+            runCatching {
+                val original = ImageIO.read(ByteArrayInputStream(imageBytes))
                     ?: return@runCatching Pair(emptyList<OcrBox>(), true)
-                if (!payload.available) return@runCatching Pair(emptyList<OcrBox>(), false)
+                val imgW = original.width
+                val imgH = original.height
+                if (imgW <= 0 || imgH <= 0) return@runCatching Pair(emptyList<OcrBox>(), true)
 
-                // Lines come back in PREPROCESSED (scaled) coords; convert to original.
-                val words = payload.lines.mapNotNull { it.toWord(scale) }
-                val bubbles = clusterIntoBubbles(words, imgW, imgH, isCjk(lang))
-                Pair(bubbles, true)
-            } finally {
-                runCatching { Files.deleteIfExists(tmp) }
+                // Avoid blowing past the OCR engine's max dimension on tall webtoon pages.
+                val scale = if (maxOf(imgW, imgH) * 1.5f > 4000f) 1.0f else 1.5f
+                val preprocessed = preprocess(original, scale)
+
+                val tmp = Files.createTempFile("nyora_ocr_", ".png")
+                try {
+                    ImageIO.write(preprocessed, "png", tmp.toFile())
+
+                    val stdout = runOcrProcess(host, script, tmp, lang)
+                        ?: return@runCatching Pair(emptyList<OcrBox>(), true)
+
+                    val payload = parsePayload(stdout)
+                        ?: return@runCatching Pair(emptyList<OcrBox>(), true)
+                    if (!payload.available) return@runCatching Pair(emptyList<OcrBox>(), false)
+
+                    // Lines come back in PREPROCESSED (scaled) coords; convert to original.
+                    val words = payload.lines.mapNotNull { it.toWord(scale) }
+                    val bubbles = clusterIntoBubbles(words, imgW, imgH, isCjk(lang))
+                    Pair(bubbles, true)
+                } finally {
+                    runCatching { Files.deleteIfExists(tmp) }
+                }
+            }.getOrElse { error ->
+                if (error is CancellationException) throw error
+                Pair(emptyList(), true)
             }
-        }.getOrDefault(Pair(emptyList(), true))
+        } finally {
+            runCatching { Files.deleteIfExists(script) }
+        }
+    }
+
+    /** Bounded, concurrently drained PowerShell output with an effective timeout. */
+    private fun runOcrProcess(
+        host: String,
+        script: java.nio.file.Path,
+        image: java.nio.file.Path,
+        lang: String,
+    ): String? {
+        val process = runCatching {
+            ProcessBuilder(
+                host,
+                "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                "-File", script.toAbsolutePath().toString(),
+                "-ImagePath", image.toAbsolutePath().toString(),
+                "-Lang", lang,
+            ).redirectErrorStream(true).start()
+        }.getOrNull() ?: return null
+
+        val output = ByteArrayOutputStream()
+        val outputExceeded = AtomicBoolean(false)
+        val outputFailed = AtomicBoolean(false)
+        val drainer = Thread({
+            try {
+                process.inputStream.use { input ->
+                    val buffer = ByteArray(16 * 1024)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        if (output.size() + count > MAX_PROCESS_OUTPUT_BYTES) {
+                            outputExceeded.set(true)
+                            process.destroyForcibly()
+                            break
+                        }
+                        output.write(buffer, 0, count)
+                    }
+                }
+            } catch (_: Throwable) {
+                outputFailed.set(true)
+            }
+        }, "NyoraWindowsOcrOutput").apply {
+            isDaemon = true
+            start()
+        }
+
+        try {
+            if (!process.waitFor(60, TimeUnit.SECONDS)) {
+                terminate(process)
+                return null
+            }
+            drainer.join(TimeUnit.SECONDS.toMillis(TERMINATE_GRACE_SECONDS))
+            if (drainer.isAlive || outputExceeded.get() || outputFailed.get()) return null
+            return output.toString(Charsets.UTF_8)
+        } catch (interrupted: InterruptedException) {
+            terminate(process)
+            Thread.currentThread().interrupt()
+            throw CancellationException("Windows OCR process interrupted").also { it.initCause(interrupted) }
+        } catch (_: Throwable) {
+            terminate(process)
+            return null
+        } finally {
+            runCatching { process.inputStream.close() }
+            if (drainer.isAlive) drainer.interrupt()
+        }
+    }
+
+    private fun terminate(process: Process) {
+        if (!process.isAlive) return
+        process.destroy()
+        if (!runCatching { process.waitFor(TERMINATE_GRACE_SECONDS, TimeUnit.SECONDS) }.getOrDefault(false)) {
+            process.destroyForcibly()
+            runCatching { process.waitFor(TERMINATE_GRACE_SECONDS, TimeUnit.SECONDS) }
+        }
     }
 
     private fun isCjk(lang: String): Boolean {

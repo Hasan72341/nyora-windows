@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -28,6 +30,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -37,6 +43,9 @@ import com.nyora.windows.bridge.CategoryDto
 import com.nyora.windows.ui.reader.AlternativesDialog
 import com.nyora.windows.ui.theme.AnimeAsyncImage
 import com.nyora.windows.ui.theme.LocalNyoraAccent
+import com.nyora.hasan72341.shared.scrobbling.ScrobblerService
+import com.nyora.windows.ui.theme.NyoraButton
+import com.nyora.windows.ui.theme.NyoraScrollContainer
 import com.nyora.windows.ui.theme.NyoraTokens
 import com.nyora.windows.ui.theme.SystemTag
 import com.nyora.windows.ui.theme.glassCard
@@ -64,6 +73,7 @@ fun DetailsScreen(state: AppState) {
     var showCategoryDialog by remember { mutableStateOf(false) }
     var showDownloadDialog by remember { mutableStateOf(false) }
     var showAlt by remember { mutableStateOf(false) }
+    var showTrack by remember { mutableStateOf(false) }
 
     // Chapter list controls.
     var sortAscending by remember(manga?.id) { mutableStateOf(false) }
@@ -71,11 +81,33 @@ fun DetailsScreen(state: AppState) {
 
     Box(modifier = Modifier.fillMaxSize().background(NyoraTokens.bg)) {
         if (manga != null) {
-            // Flat semi-opaque scrim so the title stays legible over the base bg.
+            // Full-bleed blurred cover backdrop: the cover's colors bleed behind the hero,
+            // heavily blurred + dimmed, then a vertical scrim dissolves it into the page so
+            // the title and chapter list stay legible. Falls back to the flat bg when absent.
+            val backdropModel = state.coverProxyUrl(manga.coverUrl, state.activeSource).ifBlank { null }
+            if (backdropModel != null) {
+                AsyncImage(
+                    model = backdropModel,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight(0.6f)
+                        .blur(40.dp)
+                        .graphicsLayer { alpha = 0.45f },
+                )
+            }
+            // Vertical scrim: a whisper of accent up top -> solid bg by mid-screen.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(NyoraTokens.bg.copy(alpha = 0.72f)),
+                    .background(
+                        Brush.verticalGradient(
+                            0f to accent.copy(alpha = 0.10f),
+                            0.30f to NyoraTokens.bg.copy(alpha = 0.72f),
+                            0.65f to NyoraTokens.bg,
+                        ),
+                    ),
             )
 
             // Derive history "read" lookup + scanlator universe.
@@ -136,8 +168,14 @@ fun DetailsScreen(state: AppState) {
                     }
                 }
 
-                LazyColumn(
+                val listState = rememberLazyListState()
+                NyoraScrollContainer(
+                    adapter = rememberScrollbarAdapter(listState),
                     modifier = Modifier.fillMaxWidth().weight(1f),
+                ) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 32.dp),
                     verticalArrangement = Arrangement.spacedBy(32.dp),
                 ) {
@@ -202,22 +240,11 @@ fun DetailsScreen(state: AppState) {
                                     val firstUnread = visibleChapters.lastOrNull { it.id !in readChapterIds }
                                         ?: manga.chapters.firstOrNull()
                                     if (firstUnread != null) {
-                                        Button(
+                                        NyoraButton(
+                                            text = if (readChapterIds.isEmpty()) "Start Reading" else "Continue",
+                                            icon = Icons.Default.PlayArrow,
                                             onClick = { state.openChapter(manga, firstUnread) },
-                                            shape = RoundedCornerShape(14.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = accent),
-                                        ) {
-                                            Icon(
-                                                Icons.Default.PlayArrow,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(18.dp),
-                                            )
-                                            Spacer(Modifier.width(6.dp))
-                                            Text(
-                                                if (readChapterIds.isEmpty()) "Start Reading" else "Continue",
-                                                fontWeight = FontWeight.Bold,
-                                            )
-                                        }
+                                        )
                                     }
                                     OutlinedButton(
                                         onClick = { showAlt = true },
@@ -230,6 +257,13 @@ fun DetailsScreen(state: AppState) {
                                         )
                                         Spacer(Modifier.width(6.dp))
                                         Text("Other sources")
+                                    }
+                                    OutlinedButton(
+                                        onClick = { showTrack = true },
+                                        shape = RoundedCornerShape(14.dp),
+                                    ) {
+                                        val linked = state.linkedTrackers(manga.id).isNotEmpty()
+                                        Text(if (linked) "Tracking ✓" else "Track")
                                     }
                                 }
                             }
@@ -307,6 +341,7 @@ fun DetailsScreen(state: AppState) {
                         )
                     }
                 }
+                }
             }
         }
 
@@ -333,6 +368,10 @@ fun DetailsScreen(state: AppState) {
 
     if (showAlt && manga != null) {
         AlternativesDialog(state, manga.title) { showAlt = false }
+    }
+
+    if (showTrack && manga != null) {
+        TrackDialog(state, manga) { showTrack = false }
     }
 
     if (showDownloadDialog && manga != null) {
@@ -865,5 +904,93 @@ private fun CategoryManagerDialog(
             }
         },
         shape = RoundedCornerShape(24.dp),
+    )
+}
+
+/**
+ * Link this manga to a tracker entry (AniList / MyAnimeList / Shikimori) so the reader
+ * scrobbles progress on chapter open. One card per signed-in service: Link runs a search
+ * seeded with the manga title; tapping a result stores the mangaId → remoteId link.
+ */
+@Composable
+private fun TrackDialog(state: AppState, manga: Manga, onDismiss: () -> Unit) {
+    val accent = LocalNyoraAccent.current.color
+    LaunchedEffect(Unit) { state.refreshTrackerAuth() }
+    val hidden = setOf(ScrobblerService.KITSU, ScrobblerService.SHIKIMORI)
+    val services = ScrobblerService.entries.filter {
+        it !in hidden && it.slug in state.trackerAuthorized
+    }
+    var expanded by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Track this manga", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier.width(420.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (services.isEmpty()) {
+                    Text(
+                        "Sign in to a tracker under Settings ▸ Tracker first.",
+                        color = NyoraTokens.onSurfaceMuted,
+                    )
+                }
+                services.forEach { service ->
+                    val linkedId = state.linkedTrackers(manga.id)[service.slug]
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                            .glassCard(shape = RoundedCornerShape(14.dp), fill = NyoraTokens.surface2)
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(service.title, color = NyoraTokens.onSurfaceHigh,
+                                fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                            if (linkedId != null) {
+                                Text("Linked", color = NyoraTokens.mint, fontSize = 12.sp)
+                                Spacer(Modifier.width(8.dp))
+                                TextButton(onClick = { state.unlinkTracker(manga.id, service.slug) }) {
+                                    Text("Unlink", color = NyoraTokens.onSurfaceMuted, fontSize = 12.sp)
+                                }
+                            } else {
+                                TextButton(onClick = {
+                                    expanded = service.slug
+                                    state.trackerSearch(service, manga.title)
+                                }) { Text("Link", color = accent, fontSize = 13.sp) }
+                            }
+                        }
+                        if (linkedId == null && expanded == service.slug) {
+                            if (state.trackerBusy == service.slug) {
+                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = accent)
+                            } else {
+                                val results = state.trackerResults[service.slug].orEmpty()
+                                if (results.isEmpty()) {
+                                    Text("No matches.", color = NyoraTokens.onSurfaceFaint, fontSize = 12.sp)
+                                }
+                                results.take(6).forEach { r ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                state.linkTracker(manga.id, service.slug, r.id)
+                                                expanded = null
+                                            }
+                                            .padding(vertical = 6.dp, horizontal = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(r.name, color = NyoraTokens.onSurfaceBody, fontSize = 13.sp,
+                                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done", color = accent) } },
+        containerColor = NyoraTokens.surface1,
+        shape = RoundedCornerShape(20.dp),
     )
 }

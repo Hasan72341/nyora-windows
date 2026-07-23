@@ -3,6 +3,8 @@ package com.nyora.windows.ui.screen
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
@@ -24,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import com.nyora.windows.AppState
 import com.nyora.windows.ui.theme.AnimeAsyncImage
 import com.nyora.windows.ui.theme.LocalNyoraAccent
+import com.nyora.windows.ui.theme.NyoraScrollContainer
 import com.nyora.windows.ui.theme.NyoraTokens
 import com.nyora.windows.ui.theme.SectionHeader
 import com.nyora.windows.ui.theme.SystemTag
@@ -59,14 +62,21 @@ fun BookmarksScreen(state: AppState) {
         // Group by manga so each section reads as one curated card.
         val grouped = state.bookmarks.groupBy { it.mangaTitle.ifBlank { "Unknown" } }
 
-        LazyColumn(
+        val listState = rememberLazyListState()
+        NyoraScrollContainer(
+            adapter = rememberScrollbarAdapter(listState),
             modifier = Modifier.fillMaxWidth().weight(1f),
-            verticalArrangement = Arrangement.spacedBy(32.dp),
-            contentPadding = PaddingValues(bottom = 40.dp),
         ) {
-            grouped.forEach { (mangaTitle, rows) ->
-                item(key = mangaTitle) {
-                    BookmarkSection(mangaTitle, rows, state)
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(32.dp),
+                contentPadding = PaddingValues(bottom = 40.dp, end = 10.dp),
+            ) {
+                grouped.forEach { (mangaTitle, rows) ->
+                    item(key = mangaTitle) {
+                        BookmarkSection(mangaTitle, rows, state)
+                    }
                 }
             }
         }

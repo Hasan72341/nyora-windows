@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -47,6 +48,7 @@ import com.nyora.windows.AppState
 import com.nyora.windows.bridge.StatsResponse
 import com.nyora.windows.bridge.TopSourceDto
 import com.nyora.windows.ui.theme.LocalNyoraAccent
+import com.nyora.windows.ui.theme.NyoraScrollContainer
 import com.nyora.windows.ui.theme.NyoraTokens
 import com.nyora.windows.ui.theme.SectionHeader
 import com.nyora.windows.ui.theme.SystemTag
@@ -68,23 +70,29 @@ fun StatsScreen(state: AppState) {
 
     val accent = LocalNyoraAccent.current.color
     val stats = state.stats
+    val scrollState = rememberScrollState()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(32.dp),
-        verticalArrangement = Arrangement.spacedBy(32.dp),
+    NyoraScrollContainer(
+        adapter = rememberScrollbarAdapter(scrollState),
+        modifier = Modifier.fillMaxSize(),
     ) {
-        // ---- Hero band -------------------------------------------------------------
-        StatsHero(stats = stats, loading = state.statsLoading)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(32.dp),
+            verticalArrangement = Arrangement.spacedBy(32.dp),
+        ) {
+            // ---- Hero band -------------------------------------------------------------
+            StatsHero(stats = stats, loading = state.statsLoading)
 
-        when {
-            state.statsLoading && stats == null -> StatsLoadingState()
-            stats == null -> StatsEmptyState()
-            else -> {
-                StatCardsBento(stats)
-                TopSourcesSection(stats.topSources, accent)
+            when {
+                state.statsLoading && stats == null -> StatsLoadingState()
+                stats == null -> StatsEmptyState()
+                else -> {
+                    StatCardsBento(stats)
+                    TopSourcesSection(stats.topSources, accent)
+                }
             }
         }
     }

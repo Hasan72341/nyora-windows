@@ -34,6 +34,7 @@ import com.nyora.windows.ui.screen.SuggestionsScreen
 import com.nyora.windows.ui.screen.UpdatesScreen
 import com.nyora.windows.ui.theme.NyoraTheme
 import com.nyora.windows.ui.theme.NyoraTokens
+import com.nyora.windows.ui.theme.ambientGlow
 
 @Composable
 fun App(state: AppState) {
@@ -60,7 +61,7 @@ fun App(state: AppState) {
                         when {
                             state.showGlobalSearch -> { state.showGlobalSearch = false; true }
                             state.showCatalog      -> { state.showCatalog = false; true }
-                            state.showReader       -> { state.showReader = false; true }
+                            state.showReader       -> { state.closeReader(); true }
                             state.showDetails      -> { state.showDetails = false; true }
                             else -> false
                         }
@@ -135,6 +136,11 @@ private fun MainContent(state: AppState, isCompact: Boolean, sidebarWidth: andro
                 NavDest.SUGGESTIONS -> SuggestionsScreen(state)
             }
         }
+
+        // Signature ambient accent glow — ONE soft radial over the content area (below the
+        // sidebar). Empty, non-interactive overlay so clicks pass through; restores the
+        // luminous "glow bleed" without the old square-corner seam.
+        Box(Modifier.fillMaxSize().padding(start = sidebarWidth).ambientGlow(0.05f))
 
         // Floating Sidebar (Foreground layer)
         NyoraSidebar(

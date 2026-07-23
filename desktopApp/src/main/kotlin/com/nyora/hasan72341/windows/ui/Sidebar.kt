@@ -1,5 +1,8 @@
 package com.nyora.windows.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
@@ -222,19 +226,27 @@ private fun NavRow(
     val accent = LocalNyoraAccent.current.color
     var hovered by remember { mutableStateOf(false) }
 
-    val rowBg: Brush = when {
-        selected -> Brush.horizontalGradient(
-            listOf(accent.copy(alpha = 0.30f), accent.copy(alpha = 0.12f), Color.Transparent),
-        )
-        hovered -> Brush.horizontalGradient(listOf(NyoraTokens.glass2, NyoraTokens.glass2))
-        else -> Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent))
-    }
-    val iconTint = if (selected) accent else NyoraTokens.onSurfaceMuted
-    val textColor = when {
-        selected -> NyoraTokens.onSurfaceHigh
-        hovered -> NyoraTokens.onSurfaceHigh
-        else -> NyoraTokens.onSurfaceBody
-    }
+    // Spring-driven selection so the accent wash, indicator bar and icon grow in instead of
+    // hard-cutting. A single fraction (0..1) drives every selected-state visual.
+    val selectSpring = spring<Float>(dampingRatio = 0.72f, stiffness = 380f)
+    val sel by animateFloatAsState(if (selected) 1f else 0f, selectSpring, label = "sel")
+    val hover by animateFloatAsState(if (hovered && !selected) 1f else 0f, label = "hover")
+    val iconScale by animateFloatAsState(if (selected) 1.12f else 1f, selectSpring, label = "iconScale")
+    val iconTint by animateColorAsState(
+        if (selected) accent else NyoraTokens.onSurfaceMuted, label = "iconTint",
+    )
+    val textColor by animateColorAsState(
+        if (selected || hovered) NyoraTokens.onSurfaceHigh else NyoraTokens.onSurfaceBody,
+        label = "textColor",
+    )
+
+    val rowBg: Brush = Brush.horizontalGradient(
+        listOf(
+            accent.copy(alpha = 0.30f * sel + 0.05f * hover),
+            accent.copy(alpha = 0.12f * sel + 0.03f * hover),
+            Color.Transparent,
+        ),
+    )
 
     Row(
         modifier = Modifier
@@ -253,14 +265,19 @@ private fun NavRow(
         horizontalArrangement = if (isCompact) Arrangement.Center else Arrangement.Start,
     ) {
         if (isCompact) {
-            Icon(icon, label, tint = iconTint, modifier = Modifier.size(22.dp))
+            Icon(icon, label, tint = iconTint, modifier = Modifier.size(22.dp).graphicsLayer {
+                scaleX = iconScale; scaleY = iconScale
+            })
         } else {
+            // Indicator bar grows from 0 -> 18.dp on select (springs in via `sel`).
             Box(
-                Modifier.padding(start = 3.dp).width(3.dp).height(18.dp).clip(RoundedCornerShape(2.dp))
-                    .background(if (selected) accent else Color.Transparent),
+                Modifier.padding(start = 3.dp).width(3.dp).height(18.dp * sel).clip(RoundedCornerShape(2.dp))
+                    .background(accent),
             )
             Spacer(Modifier.width(9.dp))
-            Icon(icon, label, tint = iconTint, modifier = Modifier.size(19.dp))
+            Icon(icon, label, tint = iconTint, modifier = Modifier.size(19.dp).graphicsLayer {
+                scaleX = iconScale; scaleY = iconScale
+            })
             Spacer(Modifier.width(13.dp))
             Text(
                 text = label,

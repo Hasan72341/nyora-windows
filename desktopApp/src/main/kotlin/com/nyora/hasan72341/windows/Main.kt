@@ -22,6 +22,8 @@ import com.nyora.windows.ui.App
 import com.nyora.windows.ui.theme.AppearanceMode
 import com.nyora.windows.ui.theme.WindowsNative
 import com.nyora.hasan72341.shared.HelperMain
+import com.nyora.hasan72341.shared.scrobbling.DesktopOAuthCallbacks
+import com.nyora.hasan72341.shared.scrobbling.DesktopUrlScheme
 import com.nyora.hasan72341.shared.data.ExtensionInstaller
 import com.nyora.hasan72341.shared.data.SourceCatalogClient
 import com.nyora.hasan72341.shared.proxy.NyoraRestServer
@@ -31,7 +33,12 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 
-fun main() {
+fun main(args: Array<String>) {
+    // Register the nyora:// URL scheme + single-instance dispatcher for tracker
+    // OAuth callbacks. If this launch was only the OS delivering a nyora:// URL to
+    // an already-running instance, it forwards the URL and we exit before booting.
+    if (DesktopUrlScheme.install(args) { url -> DesktopOAuthCallbacks.complete(url) }) return
+
     // GraalVM 24.x ships no Truffle native attach library for Windows ARM64, so the
     // optimizing runtime fails to initialise (NoSuchFileException for
     // META-INF/.../libtruffleattach/windows/aarch64) and every JS parser dies with an

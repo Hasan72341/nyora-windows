@@ -9,11 +9,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -34,6 +36,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -86,6 +89,33 @@ fun WelcomeScreen(state: AppState) {
                 onGuest = { stage = "prefs" },
             )
         }
+
+        // "Local Data Detected" — Merge vs Replace on sign-in (Mac parity).
+        if (state.cloudConflictPending) {
+            AlertDialog(
+                onDismissRequest = { state.cloudConflictPending = false },
+                title = { Text("Local data detected", fontWeight = FontWeight.Bold) },
+                text = {
+                    Text(
+                        "You already have library data on this device. Merge it with your " +
+                            "cloud library, or replace this local data with what's in the cloud?",
+                        color = NyoraTokens.onSurfaceMuted,
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = { state.cloudResolveConflict(replace = false) }) {
+                        Text("Merge local & cloud", color = accent, fontWeight = FontWeight.SemiBold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { state.cloudResolveConflict(replace = true) }) {
+                        Text("Replace with cloud", color = NyoraTokens.onSurfaceMuted)
+                    }
+                },
+                containerColor = NyoraTokens.surface2,
+                shape = RoundedCornerShape(20.dp),
+            )
+        }
     }
 }
 
@@ -128,113 +158,153 @@ fun PreferencesOverlay(state: AppState) {
 
 @Composable
 private fun AuthStage(state: AppState, accent: Color, busy: Boolean, onGuest: () -> Unit) {
-    Row(
-        modifier = Modifier.widthIn(max = 980.dp).fillMaxWidth().padding(horizontal = 48.dp),
-        horizontalArrangement = Arrangement.spacedBy(56.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // Editorial hero
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Image(
-                    painter = painterResource("nyora_logo.png"),
-                    contentDescription = "Nyora",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(44.dp).clip(CircleShape),
-                )
-                Spacer(Modifier.width(14.dp))
-                Text("NYORA", color = NyoraTokens.onSurfaceHigh, fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
-            }
-            Spacer(Modifier.height(28.dp))
-            Text("破壊 · MANGA, ANYWHERE THE NIGHT TAKES YOU", color = accent,
-                fontSize = 11.sp, fontWeight = FontWeight.Medium, letterSpacing = 2.sp)
-            Spacer(Modifier.height(18.dp))
-            Text("Read like the\nworld can wait.", color = NyoraTokens.onSurfaceHigh,
-                fontSize = 48.sp, fontWeight = FontWeight.Light, lineHeight = 54.sp)
-            Spacer(Modifier.height(20.dp))
-            Text(
-                "Nyora pulls your sources into one quiet shelf and remembers exactly " +
-                    "where you stopped. Sign in to sync and back it up, or just start reading.",
-                color = NyoraTokens.onSurfaceMuted, fontSize = 15.sp, lineHeight = 23.sp,
-                modifier = Modifier.widthIn(max = 420.dp),
-            )
-            Spacer(Modifier.height(28.dp))
-            FeatureLine(accent, "Your sources, one shelf")
-            FeatureLine(accent, "Picks up on every device")
-            FeatureLine(accent, "No ads, ever")
-        }
+    // Editorial monochrome onboarding, following nyora-mac's WelcomeView: a paper
+    // field with an oversized ghost "N", a tracked eyebrow, the "Nyora" wordmark,
+    // a short rule, a tagline, and ink-filled auth buttons. Deliberately no accent —
+    // the accent returns once you're in the app.
+    val ink = NyoraTokens.onSurfaceHigh
+    val subtle = NyoraTokens.onSurfaceMuted
+    val faint = NyoraTokens.onSurfaceFaint
 
-        // Auth panel
+    Box(Modifier.fillMaxSize().background(NyoraTokens.bg)) {
+        // Oversized ghost wordmark bleeding off the trailing edge — editorial flourish.
+        Text(
+            "N",
+            color = ink.copy(alpha = 0.035f),
+            fontSize = 460.sp,
+            fontWeight = FontWeight.Black,
+            modifier = Modifier.align(Alignment.TopEnd).offset(x = 130.dp, y = (-90).dp),
+        )
+
         Column(
-            modifier = Modifier.width(400.dp)
-                .glassCard(shape = RoundedCornerShape(26.dp), fill = NyoraTokens.surface1)
-                .padding(28.dp),
+            modifier = Modifier.align(Alignment.CenterStart).widthIn(max = 460.dp).padding(48.dp),
+            verticalArrangement = Arrangement.spacedBy(28.dp),
         ) {
-            Text("Start reading", color = NyoraTokens.onSurfaceHigh, fontSize = 20.sp,
-                fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(18.dp))
+            // ── Brand ──────────────────────────────────────────────────────────
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("MANGA · EVERYWHERE", color = subtle, fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold, letterSpacing = 2.5.sp)
+                Text("Nyora", color = ink, fontSize = 68.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                Box(Modifier.width(48.dp).height(3.dp).background(ink))
+                Text("Your library, in sync — read anywhere, pick up where you left off.",
+                    color = subtle, fontSize = 15.sp, lineHeight = 22.sp)
+            }
+
+            // ── Card: landing → form ───────────────────────────────────────────
+            var authMode by remember { mutableStateOf("landing") } // landing | signin | signup
             var email by remember { mutableStateOf("") }
             var password by remember { mutableStateOf("") }
-            OutlinedTextField(
-                value = email, onValueChange = { email = it; state.authMessage = null },
-                label = { Text("Email") }, singleLine = true, enabled = !busy,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
-                value = password, onValueChange = { password = it; state.authMessage = null },
-                label = { Text("Password") }, singleLine = true, enabled = !busy,
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(16.dp))
-            Button(
-                onClick = { state.cloudSignIn(email, password) }, enabled = !busy,
-                modifier = Modifier.fillMaxWidth().height(50.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.White),
-            ) { Text(if (busy) "Working…" else "Sign in", fontWeight = FontWeight.SemiBold) }
-            Spacer(Modifier.height(10.dp))
-            OutlinedButton(
-                onClick = { state.cloudRegister(email, password) }, enabled = !busy,
-                modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp),
-            ) { Text(if (busy) "Working…" else "Create account") }
 
-            // Inline auth feedback. The first-run Welcome screen renders above the
-            // app's global snackbar host, so validation/progress/errors must be shown
-            // here or the buttons look unresponsive (Store cert 10.1.2.10 fix).
-            state.authMessage?.let { msg ->
-                Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (busy) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(15.dp), strokeWidth = 2.dp, color = accent,
-                        )
-                        Spacer(Modifier.width(10.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (authMode == "landing") {
+                    MonoPrimaryButton("Sign in", busy = false, enabled = !busy) {
+                        authMode = "signin"; state.authMessage = null
                     }
-                    Text(
-                        msg,
-                        color = if (busy) NyoraTokens.onSurfaceMuted else accent,
-                        fontSize = 13.sp, lineHeight = 18.sp,
-                    )
+                    MonoSecondaryButton("Create account", enabled = !busy) {
+                        authMode = "signup"; state.authMessage = null
+                    }
+                    TextButton(onClick = onGuest, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                        Text("Continue as guest", color = subtle, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    }
+                } else {
+                    val signup = authMode == "signup"
+                    Text(if (signup) "Create account" else "Welcome back",
+                        color = ink, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                    MonoField("Email", email, enabled = !busy) { email = it; state.authMessage = null }
+                    MonoField("Password", password, enabled = !busy, isPassword = true) {
+                        password = it; state.authMessage = null
+                    }
+                    MonoPrimaryButton(
+                        if (signup) "Create account" else "Sign in",
+                        busy = busy,
+                        enabled = !busy && email.isNotBlank() && password.isNotBlank(),
+                    ) {
+                        if (signup) state.cloudRegister(email, password) else state.cloudSignIn(email, password)
+                    }
+                    TextButton(
+                        onClick = { authMode = "landing"; state.authMessage = null },
+                        enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                    ) { Text("‹ Back", color = subtle, fontSize = 14.sp, fontWeight = FontWeight.Medium) }
+                }
+
+                // Inline auth feedback (renders above the global snackbar host).
+                state.authMessage?.let { msg ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (busy) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = subtle)
+                        Text(msg, color = subtle, fontSize = 13.sp, lineHeight = 18.sp)
+                    }
                 }
             }
-            Spacer(Modifier.height(18.dp))
-            OrDivider()
-            Spacer(Modifier.height(14.dp))
-            TextButton(
-                onClick = onGuest, enabled = !busy,
-                modifier = Modifier.fillMaxWidth().height(46.dp),
-            ) { Text("Continue as guest", color = NyoraTokens.onSurfaceMuted, fontSize = 14.sp) }
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "No account needed — go in as a guest and sync whenever you like.",
-                color = NyoraTokens.onSurfaceFaint, fontSize = 12.sp, textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
+
+            Text("By continuing you agree to sync your library with Nyora.",
+                color = faint, fontSize = 11.sp)
         }
     }
+}
+
+/** Ink-filled primary button (mac Mono primary): dark-on-light inverted fill. */
+@Composable
+private fun MonoPrimaryButton(text: String, busy: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val ink = NyoraTokens.onSurfaceHigh
+    Box(
+        modifier = Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(ink.copy(alpha = if (!enabled || busy) 0.35f else 1f))
+            .clickable(enabled = enabled && !busy) { onClick() }
+            .padding(vertical = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = NyoraTokens.bg)
+        else Text(text, color = NyoraTokens.bg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** Ink-outlined secondary button (mac Mono secondary). */
+@Composable
+private fun MonoSecondaryButton(text: String, enabled: Boolean, onClick: () -> Unit) {
+    val ink = NyoraTokens.onSurfaceHigh
+    Box(
+        modifier = Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.5.dp, ink.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+            .clickable(enabled = enabled) { onClick() }
+            .padding(vertical = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) { Text(text, color = ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+}
+
+/** Monochrome rounded text field (no accent). */
+@Composable
+private fun MonoField(
+    label: String,
+    value: String,
+    enabled: Boolean,
+    isPassword: Boolean = false,
+    onChange: (String) -> Unit,
+) {
+    val ink = NyoraTokens.onSurfaceHigh
+    OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        label = { Text(label) },
+        singleLine = true,
+        enabled = enabled,
+        visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
+        shape = RoundedCornerShape(10.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = ink,
+            unfocusedBorderColor = ink.copy(alpha = 0.25f),
+            cursorColor = ink,
+            focusedLabelColor = ink,
+            unfocusedLabelColor = NyoraTokens.onSurfaceMuted,
+            focusedTextColor = ink,
+            unfocusedTextColor = ink,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 // ── Layer 2 · preferences ────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -12,16 +13,24 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.NavigateBefore
 import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.FormatTextdirectionLToR
@@ -73,6 +82,7 @@ import com.nyora.windows.translate.PageTranslation
 import com.nyora.windows.ai.AiMode
 import com.nyora.hasan72341.shared.model.MangaChapter
 import com.nyora.hasan72341.shared.model.MangaPage
+import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.delay
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -102,6 +112,7 @@ fun ReaderScreen(state: AppState) {
     var showHUD by remember { mutableStateOf(true) }
     var showSettings by remember { mutableStateOf(false) }
     var showColorSheet by remember { mutableStateOf(false) }
+    var scrubPreview by remember { mutableStateOf<Int?>(null) }
 
     // Distinct right-to-left *paging* direction for the PAGED mode, independent of the
     // global rtlReading layout flag. Seeded from the global flag for first-open parity,
@@ -155,6 +166,12 @@ fun ReaderScreen(state: AppState) {
         }
     }
 
+    // Whole-chapter pre-translate on open when translation is already on
+    // (carries across chapters) — mac parity. Idempotent: skips cached pages.
+    LaunchedEffect(state.readerChapter?.id) {
+        if (state.translateEnabled) state.translateWholeChapter()
+    }
+
     // Auto-hide HUD after 4s of inactivity — only when autoHideControls is on.
     LaunchedEffect(showHUD, state.autoHideControls) {
         if (showHUD && state.autoHideControls) {
@@ -166,8 +183,58 @@ fun ReaderScreen(state: AppState) {
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
 
+    // Shared scroll state for the continuous (webtoon/vertical) readers so
+    // auto-scroll can drive the offset directly.
+    val webtoonListState = rememberLazyListState()
+    // Auto-scroll driver (nyora-mac / web model). Paged: flip a page every
+    // `autoScrollPagedDelay` seconds. Webtoon/vertical: nudge the offset every
+    // frame by px/sec. Both roll into the next chapter at the end, then stop.
+    LaunchedEffect(state.autoScrollOn, state.readerMode, state.readerChapter?.id) {
+        if (!state.autoScrollOn) return@LaunchedEffect
+        if (state.readerMode == ReaderMode.PAGED) {
+            while (state.autoScrollOn) {
+                delay((state.autoScrollPagedDelay * 1000).toLong())
+                if (!state.autoScrollOn) break
+                val last = state.readerPages.size - 1
+                if (state.readerCurrentPage >= last && !hasAdjacentChapter(state, +1)) {
+                    state.autoScrollOn = false; break
+                }
+                navigateEdgeAware(state, +1)
+            }
+        } else {
+            var lastNanos = 0L
+            while (state.autoScrollOn) {
+                val now = withFrameNanos { it }
+                val dtNs = if (lastNanos == 0L) 0L else (now - lastNanos).coerceAtMost(100_000_000L)
+                lastNanos = now
+                val dy = (state.autoScrollPxPerSec * (dtNs / 1_000_000_000.0)).toFloat()
+                if (dy > 0f) runCatching { webtoonListState.scrollBy(dy) }
+                if (!webtoonListState.canScrollForward) {
+                    if (hasAdjacentChapter(state, +1)) goAdjacentChapter(state, +1)
+                    else state.autoScrollOn = false
+                    break
+                }
+            }
+        }
+    }
+
     // Determine background color from the global readerBackground setting.
     // "dark" and "auto" both use pure black for reading; "light" uses the theme surface.
+    // Webtoon/vertical page tracking (parity with paged + mac). Seed the scroll to
+    // the resume page on open, and mirror the scroll position back into
+    // readerCurrentPage so the scrubber/progress line move and the chapter resumes.
+    LaunchedEffect(state.readerChapter?.id, state.readerMode) {
+        if (state.readerMode != ReaderMode.PAGED) {
+            val p = state.readerCurrentPage.coerceIn(0, (state.readerPages.size - 1).coerceAtLeast(0))
+            if (p > 0) runCatching { webtoonListState.scrollToItem(p) }
+        }
+    }
+    LaunchedEffect(webtoonListState, state.readerMode) {
+        if (state.readerMode != ReaderMode.PAGED) {
+            snapshotFlow { webtoonListState.firstVisibleItemIndex }
+                .collect { state.recordReaderPage(it) }
+        }
+    }
     val readerBgColor = if (state.readerBackground == "light") NyoraTokens.bg else Color(0xFF000000)
 
     Box(
@@ -178,7 +245,7 @@ fun ReaderScreen(state: AppState) {
             .onKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                 when (event.key) {
-                    Key.Escape -> { state.showReader = false; true }
+                    Key.Escape -> { state.closeReader(); true }
                     // Horizontal arrows respect the effective paged direction.
                     Key.DirectionRight -> { navigateEdgeAware(state, if (effectiveRtl) -1 else 1); true }
                     Key.DirectionLeft -> { navigateEdgeAware(state, if (effectiveRtl) 1 else -1); true }
@@ -200,6 +267,7 @@ fun ReaderScreen(state: AppState) {
                     Key.N -> { goAdjacentChapter(state, +1); true }
                     Key.P -> { goAdjacentChapter(state, -1); true }
                     Key.Spacebar -> { navigateEdgeAware(state, 1); true }
+                    Key.A -> { state.toggleAutoScroll(); true }
                     else -> false
                 }
             },
@@ -226,9 +294,9 @@ fun ReaderScreen(state: AppState) {
                     onOffsetChange = { offset = it },
                 )
             state.readerMode == ReaderMode.WEBTOON ->
-                WebtoonReader(state, pages, colorFilter)
+                WebtoonReader(state, pages, colorFilter, webtoonListState)
             else ->
-                VerticalReader(state, pages, colorFilter)
+                VerticalReader(state, pages, colorFilter, webtoonListState)
         }
 
         // Click-zone navigation overlay (only meaningful in paged mode). Left / right 25%
@@ -255,7 +323,7 @@ fun ReaderScreen(state: AppState) {
                 .size(48.dp)
                 .clip(RoundedCornerShape(24.dp))
                 .background(Color.Black.copy(alpha = 0.30f))
-                .clickable { state.showReader = false },
+                .clickable { state.closeReader() },
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -285,7 +353,16 @@ fun ReaderScreen(state: AppState) {
                     scale = (scale - 0.25f).coerceIn(1f, 4f)
                     if (scale <= 1f) offset = Offset.Zero
                 },
+                onScrub = { scrubPreview = it },
             )
+        }
+
+        // Scrub preview thumbnail (mac / Apple Books) — above the pill while dragging.
+        scrubPreview?.let { previewPage ->
+            Box(
+                Modifier.align(Alignment.BottomCenter).padding(bottom = 116.dp),
+                contentAlignment = Alignment.Center,
+            ) { ScrubThumbnail(state, previewPage, totalPages) }
         }
 
         // Signature glowing progress line (absolute bottom) with a breathing accent glow.
@@ -306,16 +383,22 @@ fun ReaderScreen(state: AppState) {
     }
 }
 
-/** The bottom progress beacon: a flat accent fill. */
+/** The bottom progress beacon: a spring-animated accent fill with a soft gradient head. */
 @Composable
 private fun BoxScope.GlowProgressLine(progress: Float) {
     val accent = LocalNyoraAccent.current.color
+    val animated by animateFloatAsState(
+        targetValue = progress.coerceIn(0f, 1f),
+        animationSpec = spring(dampingRatio = 0.9f, stiffness = 260f),
+        label = "readerProgress",
+    )
     Box(
         modifier = Modifier
             .align(Alignment.BottomStart)
-            .fillMaxWidth(progress.coerceIn(0f, 1f))
-            .height(2.5.dp)
-            .background(accent)
+            .fillMaxWidth(animated)
+            .height(3.dp)
+            .clip(RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp))
+            .background(Brush.horizontalGradient(listOf(accent.copy(alpha = 0.65f), accent)))
     )
 }
 
@@ -357,6 +440,40 @@ private fun ClickZoneOverlay(
 }
 
 @Composable
+private fun ScrubThumbnail(state: AppState, page: Int, total: Int) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .glassOverlay(shape = RoundedCornerShape(16.dp), fill = NyoraTokens.surface1)
+            .padding(8.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(120.dp, 168.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color.Black)
+                .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            SubcomposeAsyncImage(
+                model = state.pageDisplayModel(page),
+                contentDescription = "Preview page ${page + 1}",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize(),
+                loading = { CircularProgressIndicator(color = LocalNyoraAccent.current.color, modifier = Modifier.size(20.dp)) },
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "${page + 1} / $total",
+            style = MaterialTheme.typography.labelSmall,
+            color = NyoraTokens.onSurfaceHigh,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+@Composable
 private fun ReaderControlPill(
     state: AppState,
     totalPages: Int,
@@ -367,8 +484,12 @@ private fun ReaderControlPill(
     scale: Float = 1f,
     onZoomIn: () -> Unit = {},
     onZoomOut: () -> Unit = {},
+    onScrub: (Int?) -> Unit = {},
 ) {
     val accent = LocalNyoraAccent.current.color
+    var scrubbing by remember { mutableStateOf(false) }
+    var scrubPage by remember { mutableStateOf(state.readerCurrentPage) }
+    LaunchedEffect(state.readerCurrentPage) { if (!scrubbing) scrubPage = state.readerCurrentPage }
     Box(
         modifier = Modifier
             .height(72.dp)
@@ -380,7 +501,7 @@ private fun ReaderControlPill(
             verticalAlignment = Alignment.CenterVertically
         ) {
             PillIconButton(
-                onClick = { state.showReader = false },
+                onClick = { state.closeReader() },
                 accentTinted = false,
             ) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = NyoraTokens.onSurfaceHigh)
@@ -411,9 +532,20 @@ private fun ReaderControlPill(
                 Icon(Icons.AutoMirrored.Filled.NavigateBefore, contentDescription = "Prev", tint = NyoraTokens.onSurfaceHigh)
             }
 
+            // Page scrubber with a live thumbnail preview (mac / Apple Books):
+            // preview only while dragging, commit the page on release.
             Slider(
-                value = state.readerCurrentPage.toFloat(),
-                onValueChange = { state.recordReaderPage(it.toInt()) },
+                value = (if (scrubbing) scrubPage else state.readerCurrentPage).toFloat(),
+                onValueChange = { v ->
+                    scrubbing = true
+                    scrubPage = v.toInt().coerceIn(0, (totalPages - 1).coerceAtLeast(0))
+                    onScrub(scrubPage)
+                },
+                onValueChangeFinished = {
+                    scrubbing = false
+                    onScrub(null)
+                    state.recordReaderPage(scrubPage)
+                },
                 valueRange = 0f..(totalPages - 1).coerceAtLeast(1).toFloat(),
                 modifier = Modifier.width(150.dp),
                 colors = SliderDefaults.colors(
@@ -446,6 +578,15 @@ private fun ReaderControlPill(
                     imageVector = if (pagedRtl) Icons.Default.FormatTextdirectionRToL else Icons.Default.FormatTextdirectionLToR,
                     contentDescription = "Paged direction",
                     tint = if (pagedRtl) accent else NyoraTokens.onSurfaceHigh
+                )
+            }
+
+            // Auto-scroll play/pause (web-style). Tinted when running.
+            IconButton(onClick = { state.toggleAutoScroll() }) {
+                Icon(
+                    imageVector = if (state.autoScrollOn) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = "Auto-scroll",
+                    tint = if (state.autoScrollOn) accent else NyoraTokens.onSurfaceHigh,
                 )
             }
 
@@ -594,115 +735,183 @@ private fun PagedReader(
     onScaleChange: (Float) -> Unit,
     onOffsetChange: (Offset) -> Unit,
 ) {
-    val pagerState = rememberPagerState(
-        initialPage = state.readerCurrentPage.coerceIn(0, (pages.size - 1).coerceAtLeast(0)),
-        pageCount = { pages.size },
-    )
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.currentPage }.collect { page -> state.recordReaderPage(page) }
-    }
-    LaunchedEffect(state.readerCurrentPage) {
-        if (pagerState.currentPage != state.readerCurrentPage) {
-            pagerState.scrollToPage(state.readerCurrentPage)
-        }
-    }
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        // Slot model: each slot is ONE page normally, or TWO pages side-by-side in
+        // landscape double-page mode (twoPageLandscape pref + a wider-than-tall window).
+        // readerCurrentPage stays the source of truth in single-page units, so the HUD
+        // counter, slider, bookmarks and keyboard Home/End are untouched — only paging
+        // steps a whole spread at a time (via readerSlots, read by navigateEdgeAware).
+        val twoUp = state.twoPageLandscape && maxWidth > maxHeight && pages.size > 1
+        val slots = remember(pages.size, twoUp) { buildReaderSlots(pages.size, twoUp) }
 
-    HorizontalPager(
-        state = pagerState,
-        reverseLayout = reverseLayout,
-        modifier = Modifier.fillMaxSize(),
-        pageSpacing = 0.dp,
-        // Prefetch depth: decode the next/previous N pages off-screen so the
-        // reader never blocks on a single slow page. Coil fetches each page
-        // image independently and asynchronously through the engine /image
-        // proxy (gated by its own Semaphore(48)), so raising this fans out
-        // concurrent decodes ahead of the viewport rather than serialising
-        // them. Gated by the user's "Enable prefetching" pref: 2 when on
-        // (current ±2 pages), 0 when off (only the visible page decodes).
-        beyondViewportPageCount = if (state.prefetchEnabled) 2 else 0
-    ) { index ->
-        val isCurrent = index == pagerState.currentPage
-        // The remembered gesture-state lambda must read the *latest* lifted zoom/pan, so we
-        // funnel the current values through rememberUpdatedState to avoid capturing stale
-        // params from first composition.
-        val latestScale by rememberUpdatedState(scale)
-        val latestOffset by rememberUpdatedState(offset)
-        val latestIsCurrent by rememberUpdatedState(isCurrent)
-        // Only the current page reflects the lifted zoom/pan (keyboard-driven). Off-screen
-        // pages always render at rest.
-        val transformState = rememberTransformableState { zoomChange, panChange, _ ->
-            if (latestIsCurrent) {
-                val next = (latestScale * zoomChange).coerceIn(1f, 4f)
-                onScaleChange(next)
-                onOffsetChange(if (next <= 1f) Offset.Zero else latestOffset + panChange)
+        // Publish the slot model so navigateEdgeAware pages a spread at a time; clear it on
+        // leave so webtoon/vertical/portrait fall back to single-page ±1 stepping.
+        DisposableEffect(twoUp, slots) {
+            state.readerSlots = if (twoUp) slots else emptyList()
+            onDispose { state.readerSlots = emptyList() }
+        }
+
+        fun pageToSlot(page: Int) = slots.indexOfFirst { page in it }.coerceAtLeast(0)
+
+        val pagerState = rememberPagerState(
+            initialPage = pageToSlot(state.readerCurrentPage.coerceIn(0, (pages.size - 1).coerceAtLeast(0))),
+            pageCount = { slots.size },
+        )
+        LaunchedEffect(pagerState) {
+            snapshotFlow { pagerState.currentPage }.collect { slot ->
+                slots.getOrNull(slot)?.firstOrNull()?.let { state.recordReaderPage(it) }
             }
         }
-        val appliedScale = if (isCurrent) scale else 1f
-        val appliedOffset = if (isCurrent) offset else Offset.Zero
-
-        // Translate the *current* page on entry / when translation toggles on, so paging
-        // through chapters keeps bubbles populated. translatePage() is itself a no-op when
-        // already cached or when disabled, so this is cheap.
-        LaunchedEffect(index, state.translateEnabled, isCurrent) {
-            if (isCurrent && state.translateEnabled) state.translatePage(index)
+        LaunchedEffect(state.readerCurrentPage, slots) {
+            val target = pageToSlot(state.readerCurrentPage)
+            if (pagerState.currentPage != target) pagerState.scrollToPage(target)
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .transformable(transformState)
-                .pointerInput(isCurrent) {
-                    detectTapGestures(
-                        onDoubleTap = {
-                            if (isCurrent) {
-                                if (latestScale > 1f) {
-                                    onScaleChange(1f); onOffsetChange(Offset.Zero)
-                                } else {
-                                    onScaleChange(2.5f)
-                                }
-                            }
-                        },
-                    )
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            // The image + its translation overlay share ONE transformed container so the
-            // bubbles track zoom / pan exactly. The graphicsLayer that used to live on the
-            // AsyncImage is lifted here onto the BoxWithConstraints wrapper.
-            BoxWithConstraints(
-                modifier = Modifier.fillMaxSize().graphicsLayer(
-                    scaleX = appliedScale, scaleY = appliedScale,
-                    translationX = appliedOffset.x, translationY = appliedOffset.y,
-                ),
-                contentAlignment = Alignment.Center,
-            ) {
-                SubcomposeAsyncImage(
-                    model = state.proxyUrl(pages[index]),
-                    contentDescription = "Page ${index + 1}",
-                    contentScale = fitMode.contentScale(),
-                    colorFilter = colorFilter,
-                    modifier = Modifier.fillMaxSize(),
-                    loading = {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = LocalNyoraAccent.current.color)
-                        }
-                    },
-                )
+        HorizontalPager(
+            state = pagerState,
+            reverseLayout = reverseLayout,
+            modifier = Modifier.fillMaxSize(),
+            pageSpacing = 0.dp,
+            // Prefetch depth: decode the next/previous N slots off-screen so the
+            // reader never blocks on a single slow page. Coil fetches each page
+            // image independently and asynchronously through the engine /image
+            // proxy (gated by its own Semaphore(48)), so raising this fans out
+            // concurrent decodes ahead of the viewport rather than serialising
+            // them. Gated by the user's "Enable prefetching" pref: 2 when on
+            // (current ±2 slots), 0 when off (only the visible slot decodes).
+            beyondViewportPageCount = if (state.prefetchEnabled) 2 else 0
+        ) { slotIndex ->
+            val isCurrent = slotIndex == pagerState.currentPage
+            val slotPages = slots[slotIndex]
+            // The remembered gesture-state lambda must read the *latest* lifted zoom/pan, so we
+            // funnel the current values through rememberUpdatedState to avoid capturing stale
+            // params from first composition.
+            val latestScale by rememberUpdatedState(scale)
+            val latestOffset by rememberUpdatedState(offset)
+            val latestIsCurrent by rememberUpdatedState(isCurrent)
+            // Only the current slot reflects the lifted zoom/pan (keyboard-driven). Off-screen
+            // slots always render at rest.
+            val transformState = rememberTransformableState { zoomChange, panChange, _ ->
+                if (latestIsCurrent) {
+                    val next = (latestScale * zoomChange).coerceIn(1f, 4f)
+                    onScaleChange(next)
+                    onOffsetChange(if (next <= 1f) Offset.Zero else latestOffset + panChange)
+                }
+            }
+            val appliedScale = if (isCurrent) scale else 1f
+            val appliedOffset = if (isCurrent) offset else Offset.Zero
 
-                val pt = state.pageTranslations[index]
-                if (state.translateEnabled && pt != null &&
-                    pt.imageWidth > 0 && pt.imageHeight > 0 && pt.blocks.isNotEmpty()
+            // Translate every page in the *current* slot on entry / when translation toggles
+            // on. translatePage() is a no-op when already cached or disabled, so this is cheap.
+            LaunchedEffect(slotIndex, state.translateEnabled, isCurrent) {
+                if (isCurrent && state.translateEnabled) slotPages.forEach { state.translatePage(it) }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .transformable(transformState)
+                    .pointerInput(isCurrent) {
+                        detectTapGestures(
+                            onDoubleTap = {
+                                if (isCurrent) {
+                                    if (latestScale > 1f) {
+                                        onScaleChange(1f); onOffsetChange(Offset.Zero)
+                                    } else {
+                                        onScaleChange(2.5f)
+                                    }
+                                }
+                            },
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                // The whole spread (1–2 pages) shares ONE transformed container so zoom / pan
+                // move both halves together. In RTL the higher-numbered page sits on the left.
+                Box(
+                    modifier = Modifier.fillMaxSize().graphicsLayer(
+                        scaleX = appliedScale, scaleY = appliedScale,
+                        translationX = appliedOffset.x, translationY = appliedOffset.y,
+                    ),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    TranslationOverlay(
-                        translation = pt,
-                        fitMode = fitMode,
-                        boxMaxWidth = with(LocalDensity.current) { maxWidth.toPx() },
-                        boxMaxHeight = with(LocalDensity.current) { maxHeight.toPx() },
-                    )
+                    val ordered = if (reverseLayout) slotPages.asReversed() else slotPages
+                    Row(Modifier.fillMaxSize()) {
+                        ordered.forEach { pageIndex ->
+                            Box(
+                                modifier = Modifier.weight(1f).fillMaxHeight(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                ReaderPageImage(state, pages, pageIndex, colorFilter, fitMode)
+                            }
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+/**
+ * One page image plus its translation overlay, filling its parent slot cell. Kept
+ * separate so the paged reader can place one (single) or two (double-page spread) of
+ * these inside a shared, zoom/pan-transformed container.
+ */
+@Composable
+private fun ReaderPageImage(
+    state: AppState,
+    pages: List<MangaPage>,
+    index: Int,
+    colorFilter: ColorFilter?,
+    fitMode: FitMode,
+) {
+    // The image + its translation overlay share ONE box so the bubbles track the art.
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        SubcomposeAsyncImage(
+            model = state.pageDisplayModel(index),
+            contentDescription = "Page ${index + 1}",
+            contentScale = fitMode.contentScale(),
+            colorFilter = colorFilter,
+            modifier = Modifier.fillMaxSize(),
+            loading = {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = LocalNyoraAccent.current.color)
+                }
+            },
+        )
+
+        val pt = state.pageTranslations[index]
+        if (state.translateEnabled && pt != null &&
+            pt.imageWidth > 0 && pt.imageHeight > 0 && pt.blocks.isNotEmpty()
+        ) {
+            TranslationOverlay(
+                translation = pt,
+                fitMode = fitMode,
+                boxMaxWidth = with(LocalDensity.current) { maxWidth.toPx() },
+                boxMaxHeight = with(LocalDensity.current) { maxHeight.toPx() },
+            )
+        }
+    }
+}
+
+/**
+ * Group page indices into on-screen slots for the paged reader. Single-page mode (or a
+ * portrait window) yields one page per slot. Double-page mode pairs pages after a solo
+ * cover — [0], [1,2], [3,4], … — with the trailing page left solo when the count is odd.
+ */
+private fun buildReaderSlots(pageCount: Int, twoUp: Boolean): List<List<Int>> {
+    if (!twoUp || pageCount <= 1) return (0 until pageCount).map { listOf(it) }
+    val slots = ArrayList<List<Int>>()
+    slots.add(listOf(0)) // cover alone, so subsequent spreads pair on natural boundaries
+    var i = 1
+    while (i < pageCount) {
+        if (i + 1 < pageCount) { slots.add(listOf(i, i + 1)); i += 2 }
+        else { slots.add(listOf(i)); i += 1 }
+    }
+    return slots
 }
 
 /**
@@ -805,15 +1014,16 @@ private fun TranslationOverlay(
 }
 
 @Composable
-private fun WebtoonReader(state: AppState, pages: List<MangaPage>, colorFilter: ColorFilter?) {
-    LazyColumn(Modifier.fillMaxSize()) {
-        itemsIndexed(pages) { index, page ->
+private fun WebtoonReader(state: AppState, pages: List<MangaPage>, colorFilter: ColorFilter?, listState: LazyListState) {
+    val wf = (1f - state.webtoonSidePadding.toFloat()).coerceIn(0.4f, 1f)
+    LazyColumn(Modifier.fillMaxSize(), state = listState, horizontalAlignment = Alignment.CenterHorizontally) {
+        itemsIndexed(pages, key = { index, _ -> index }, contentType = { _, _ -> "page" }) { index, page ->
             SubcomposeAsyncImage(
-                model = state.proxyUrl(page),
+                model = state.pageDisplayModel(index),
                 contentDescription = "Page ${index + 1}",
                 contentScale = ContentScale.FillWidth,
                 colorFilter = colorFilter,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(wf),
                 loading = {
                     Box(Modifier.fillMaxWidth().height(480.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = LocalNyoraAccent.current.color)
@@ -825,18 +1035,21 @@ private fun WebtoonReader(state: AppState, pages: List<MangaPage>, colorFilter: 
 }
 
 @Composable
-private fun VerticalReader(state: AppState, pages: List<MangaPage>, colorFilter: ColorFilter?) {
+private fun VerticalReader(state: AppState, pages: List<MangaPage>, colorFilter: ColorFilter?, listState: LazyListState) {
+    val wf = (1f - state.webtoonSidePadding.toFloat()).coerceIn(0.4f, 1f)
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
+        state = listState,
+        horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(0.dp), // Zero gap for modern feel
     ) {
-        itemsIndexed(pages) { index, page ->
+        itemsIndexed(pages, key = { index, _ -> index }, contentType = { _, _ -> "page" }) { index, page ->
             SubcomposeAsyncImage(
-                model = state.proxyUrl(page),
+                model = state.pageDisplayModel(index),
                 contentDescription = "Page ${index + 1}",
                 contentScale = ContentScale.FillWidth,
                 colorFilter = colorFilter,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(wf),
                 loading = {
                     Box(Modifier.fillMaxWidth().height(480.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = LocalNyoraAccent.current.color)
@@ -885,6 +1098,41 @@ private fun ReaderSettingsDialog(
             ReaderToggleRow("Right-to-left layout", state.rtlReading) { state.rtlReading = it }
             ReaderToggleRow("Show page numbers", state.showPageNumbers) { state.showPageNumbers = it }
             ReaderToggleRow("Enable prefetching", state.prefetchEnabled) { state.prefetchEnabled = it }
+
+            // Auto-scroll speed (1 slow .. 10 fast), matches nyora-mac.
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Auto-scroll speed", style = MaterialTheme.typography.bodyLarge, color = NyoraTokens.onSurfaceBody)
+                Text("${'$'}{state.autoScrollLevel} / 10", color = accent, fontWeight = FontWeight.Bold)
+            }
+            Slider(
+                value = state.autoScrollLevel.toFloat(),
+                onValueChange = { state.autoScrollLevel = it.roundToInt().coerceIn(1, 10) },
+                onValueChangeFinished = { state.persistSettings() },
+                valueRange = 1f..10f,
+                steps = 8,
+                colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent, inactiveTrackColor = NyoraTokens.glass4),
+            )
+
+            // Webtoon/vertical side padding (mac zoom-out) — narrow the strip on wide monitors.
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Webtoon side padding", style = MaterialTheme.typography.bodyLarge, color = NyoraTokens.onSurfaceBody)
+                Text("${'$'}{(state.webtoonSidePadding * 100).roundToInt()}%", color = accent, fontWeight = FontWeight.Bold)
+            }
+            Slider(
+                value = state.webtoonSidePadding.toFloat(),
+                onValueChange = { state.webtoonSidePadding = it.toDouble().coerceIn(0.0, 0.45) },
+                onValueChangeFinished = { state.persistSettings() },
+                valueRange = 0f..0.45f,
+                colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent, inactiveTrackColor = NyoraTokens.glass4),
+            )
 
             HorizontalDivider(color = NyoraTokens.glass2)
 
@@ -1029,6 +1277,20 @@ private fun ReaderToggleRow(label: String, checked: Boolean, onToggle: (Boolean)
 private fun navigateEdgeAware(state: AppState, delta: Int) {
     val last = state.readerPages.size - 1
     if (last < 0) return
+    // Double-page: step a whole spread at a time so a click/key advances past both halves.
+    // readerSlots is populated only while the landscape two-up paged reader is on screen.
+    val slots = state.readerSlots
+    if (slots.isNotEmpty() && (delta == 1 || delta == -1)) {
+        val curSlot = slots.indexOfFirst { state.readerCurrentPage in it }
+        if (curSlot >= 0) {
+            when (val nextSlot = curSlot + delta) {
+                -1 -> goAdjacentChapter(state, -1)                  // before first spread
+                slots.size -> goAdjacentChapter(state, +1)          // past last spread
+                else -> slots[nextSlot].firstOrNull()?.let { state.recordReaderPage(it) }
+            }
+            return
+        }
+    }
     val target = state.readerCurrentPage + delta
     when {
         target < 0 -> goAdjacentChapter(state, -1)   // before first page -> prev chapter
@@ -1042,6 +1304,15 @@ private fun navigateEdgeAware(state: AppState, delta: Int) {
  * [AppState.readerChapter] inside [AppState.readerManga].chapters and open it. No-op when
  * there is no such neighbour (already at the first / last chapter).
  */
+private fun hasAdjacentChapter(state: AppState, direction: Int): Boolean {
+    val manga = state.readerManga ?: return false
+    val current = state.readerChapter ?: return false
+    val chapters = manga.chapters
+    val idx = chapters.indexOfFirst { it.id == current.id }
+    if (idx < 0) return false
+    return (idx + direction * chapterNextDelta(chapters)) in chapters.indices
+}
+
 private fun goAdjacentChapter(state: AppState, direction: Int) {
     val manga = state.readerManga ?: return
     val current = state.readerChapter ?: return

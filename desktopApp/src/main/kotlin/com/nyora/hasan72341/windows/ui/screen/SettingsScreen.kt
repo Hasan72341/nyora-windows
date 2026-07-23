@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -46,7 +47,11 @@ import com.nyora.windows.ReaderMode
 import com.nyora.windows.ui.theme.Accent
 import com.nyora.windows.ui.theme.AppearanceMode
 import com.nyora.windows.ui.theme.LocalNyoraAccent
+import com.nyora.windows.ui.theme.NyoraButton
+import com.nyora.windows.ui.theme.NyoraScrollContainer
 import com.nyora.windows.ui.theme.NyoraShapes
+import com.nyora.windows.ui.theme.NyoraTag
+import com.nyora.windows.ui.theme.NyoraTone
 import com.nyora.windows.ui.theme.NyoraTokens
 import com.nyora.windows.ui.theme.nyoraDarkColorScheme
 import com.nyora.windows.ui.theme.nyoraLightColorScheme
@@ -218,14 +223,20 @@ private fun SidebarItem(cat: SettingsCategory, isSelected: Boolean, onClick: () 
 /** Scrolling detail container — one category's worth of [SettingsSection]s. */
 @Composable
 private fun CategoryScroll(content: @Composable ColumnScope.() -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 28.dp, vertical = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(28.dp),
-        content = content,
-    )
+    val scrollState = rememberScrollState()
+    NyoraScrollContainer(
+        adapter = rememberScrollbarAdapter(scrollState),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(horizontal = 28.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(28.dp),
+            content = content,
+        )
+    }
 }
 
 @Composable
@@ -457,6 +468,34 @@ private fun LibraryCategory(state: AppState) = CategoryScroll {
 
 @Composable
 private fun TranslationCategory(state: AppState) = CategoryScroll {
+    // On-device AI models — the web (nyora-web) ONNX vision + colorize stack, run
+    // fully offline. Gated behind an explicit download so the reader never pulls
+    // 100+ MB unprompted.
+    SettingsSection(eyebrow = "On-device AI", title = "AI Models", icon = Icons.Rounded.Translate) {
+        LaunchedEffect(Unit) { state.refreshOnnxReady() }
+        state.onnxDownloadLabel?.let { InfoNote("Downloading — $it") }
+        SettingsRow("Translation models") {
+            if (state.onnxTranslateReady) NyoraTag("Ready", NyoraTone.Success)
+            else NyoraButton(text = "Download", onClick = { state.downloadTranslateModels() })
+        }
+        InfoNote(
+            "Manga-Bubble-YOLO bubble detector + on-device OCR for the selected source " +
+                "language (manga-ocr for Japanese, PP-OCR for Chinese/English/Korean). " +
+                "~20–130 MB; runs fully offline.",
+        )
+        HairlineDivider()
+        SettingsToggle("Colorize Pages", state.colorizeEnabled) { state.toggleColorize() }
+        SettingsRow("Colorizer model") {
+            if (state.onnxColorizeReady) NyoraTag("Ready", NyoraTone.Success)
+            else NyoraButton(text = "Download", onClick = { state.downloadColorizeModel() })
+        }
+        InfoNote("manga-colorization-v2 (~62 MB) — colours black-and-white pages on-device.")
+        HairlineDivider()
+        SettingsToggle("Fetch Series Context (character names)", state.translateFandom) {
+            state.translateFandom = it
+        }
+        InfoNote("Looks up the series on MangaBaka/AniList/Fandom to keep character names accurate.")
+    }
     SettingsSection(eyebrow = "OCR / MT", title = "Translation", icon = Icons.Rounded.Translate) {
         SettingsToggle("Enable In-Reader Translation", state.translateEnabled) {
             state.translateEnabled = it
@@ -483,9 +522,9 @@ private fun TranslationCategory(state: AppState) = CategoryScroll {
             )
         }
         InfoNote(
-            "On-device OCR uses the built-in Windows OCR engine. Add the source " +
-                "language under Windows Settings ▸ Time & language ▸ Language & region " +
-                "to install its OCR support.",
+            "OCR runs on the downloaded on-device models above (manga-ocr / PP-OCR). " +
+                "Pick the language the page is written in; download the models under " +
+                "AI Models if they aren't Ready yet.",
         )
         HairlineDivider()
         SettingsRow("AI Refinement") {
@@ -549,10 +588,10 @@ private fun AboutCategory(state: AppState) = CategoryScroll {
         HairlineDivider()
         SettingsRow("Website") {
             Text(
-                "nyora.pages.dev",
+                "nyora.xyz",
                 style = MaterialTheme.typography.labelSmall,
                 color = LocalNyoraAccent.current.color,
-                modifier = Modifier.clickable { state.openExternalUrl("https://nyora.pages.dev") },
+                modifier = Modifier.clickable { state.openExternalUrl("https://nyora.xyz") },
             )
         }
         HairlineDivider()
@@ -561,7 +600,7 @@ private fun AboutCategory(state: AppState) = CategoryScroll {
                 "Hasan72341/nyora-windows",
                 style = MaterialTheme.typography.labelSmall,
                 color = LocalNyoraAccent.current.color,
-                modifier = Modifier.clickable { state.openExternalUrl("https://github.com/Hasan72341/nyora-windows") },
+                modifier = Modifier.clickable { state.openExternalUrl("https://github.com/Nyora-Manga/nyora-windows") },
             )
         }
         HairlineDivider()
@@ -1016,9 +1055,8 @@ private fun InfoNote(text: String) {
 }
 
 /**
- * Bring-your-own-key fields for the OpenAI-compatible refiner. Edits persist on
- * every change (the prefs file is tiny). The API key is masked and stored locally
- * in appPrefs.json.
+ * Bring-your-own-key fields for the OpenAI-compatible refiner. Endpoint/model
+ * preferences persist; the masked API key remains in memory for this session only.
  */
 @Composable
 private fun ByokFields(state: AppState) {
@@ -1036,8 +1074,12 @@ private fun ByokFields(state: AppState) {
             label = { Text("Base URL") },
             placeholder = { Text("https://api.openai.com/v1") },
             singleLine = true,
+            isError = state.byokEndpointError != null,
             modifier = Modifier.fillMaxWidth(),
         )
+        state.byokEndpointError?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
         OutlinedTextField(
             value = apiKey,
             onValueChange = { apiKey = it; state.setByok(baseUrl, it, model) },
@@ -1055,8 +1097,11 @@ private fun ByokFields(state: AppState) {
             modifier = Modifier.fillMaxWidth(),
         )
         Text(
-            "Any OpenAI-compatible Chat Completions endpoint — OpenAI, OpenRouter, Groq, " +
-                "or a local LM Studio / Ollama server. The key is stored locally in appPrefs.json.",
+            "OpenAI-compatible (OpenAI, OpenRouter, Groq, LM Studio, Ollama) OR Anthropic — " +
+                "enter an api.anthropic.com base URL or a claude model and it switches automatically. " +
+                "Your API key stays only in memory and is cleared when Nyora closes. " +
+                "BYOK requests require HTTPS, except a local loopback server " +
+                    "(localhost, 127.0.0.1, or [::1]). Redirects are never followed.",
             style = MaterialTheme.typography.bodySmall,
             color = NyoraTokens.onSurfaceMuted,
         )

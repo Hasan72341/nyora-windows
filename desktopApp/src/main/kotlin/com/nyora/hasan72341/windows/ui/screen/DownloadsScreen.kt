@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -27,6 +29,7 @@ import com.nyora.windows.AppState
 import com.nyora.windows.bridge.DownloadDto
 import com.nyora.windows.bridge.DownloadSettingsDto
 import com.nyora.windows.ui.theme.LocalNyoraAccent
+import com.nyora.windows.ui.theme.NyoraScrollContainer
 import com.nyora.windows.ui.theme.NyoraSmooth
 import com.nyora.windows.ui.theme.NyoraTokens
 import com.nyora.windows.ui.theme.SectionHeader
@@ -62,14 +65,7 @@ fun DownloadsScreen(state: AppState) {
         mutableStateOf(state.downloadSettings ?: DownloadSettingsDto())
     }
 
-    // "Clear finished" is a UI-only filter — no server endpoint exists to bulk-
-    // delete completed/failed entries. We hide them from the list locally.
-    var hideFinished by remember { mutableStateOf(false) }
-
-    val visibleDownloads = remember(state.downloads, hideFinished) {
-        if (hideFinished) state.downloads.filter { it.status == "QUEUED" || it.status == "RUNNING" }
-        else state.downloads
-    }
+    val visibleDownloads = state.downloads
 
     Column(
         modifier = Modifier
@@ -253,14 +249,14 @@ fun DownloadsScreen(state: AppState) {
                 )
             }
 
-            // Clear finished — UI-only; hides COMPLETED/FAILED entries from the list
+            // Clear finished — purges COMPLETED/FAILED/CANCELLED rows server-side.
             val finishedDownloads = remember(state.downloads) {
                 state.downloads.filter { it.status != "QUEUED" && it.status != "RUNNING" }
             }
 
             OutlinedButton(
-                onClick = { hideFinished = true },
-                enabled = finishedDownloads.isNotEmpty() && !hideFinished,
+                onClick = { state.clearFinishedDownloads() },
+                enabled = finishedDownloads.isNotEmpty(),
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.outlinedButtonColors(
                     containerColor = NyoraTokens.surface1,
@@ -270,7 +266,7 @@ fun DownloadsScreen(state: AppState) {
                 ),
                 border = androidx.compose.foundation.BorderStroke(
                     width = 1.dp,
-                    color = if (finishedDownloads.isNotEmpty() && !hideFinished) NyoraTokens.hairlineStrong
+                    color = if (finishedDownloads.isNotEmpty()) NyoraTokens.hairlineStrong
                             else NyoraTokens.hairlineFaint,
                 ),
                 modifier = Modifier.weight(1f).height(40.dp),
@@ -282,7 +278,7 @@ fun DownloadsScreen(state: AppState) {
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    text = if (hideFinished) "Finished hidden" else "Clear finished",
+                    text = "Clear finished",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                 )
@@ -306,34 +302,31 @@ fun DownloadsScreen(state: AppState) {
                         modifier = Modifier.size(48.dp),
                     )
                     Text(
-                        text = if (hideFinished) "All finished downloads hidden." else "No active downloads.",
+                        text = "No active downloads.",
                         color = NyoraTokens.onSurfaceMuted,
                         style = MaterialTheme.typography.bodyLarge,
                     )
-                    if (hideFinished) {
-                        TextButton(onClick = { hideFinished = false }) {
-                            Text(
-                                text = "Show all",
-                                color = accent,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                    }
                 }
             }
         } else {
-            LazyColumn(
+            val listState = rememberLazyListState()
+            NyoraScrollContainer(
+                adapter = rememberScrollbarAdapter(listState),
                 modifier = Modifier.fillMaxWidth().weight(1f),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = 32.dp),
             ) {
-                items(visibleDownloads, key = { it.id }) { entry ->
-                    DownloadRowCard(
-                        entry = entry,
-                        accent = accent,
-                        onCancel = { state.cancelDownload(entry.id) },
-                    )
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(bottom = 32.dp, end = 10.dp),
+                ) {
+                    items(visibleDownloads, key = { it.id }) { entry ->
+                        DownloadRowCard(
+                            entry = entry,
+                            accent = accent,
+                            onCancel = { state.cancelDownload(entry.id) },
+                        )
+                    }
                 }
             }
         }

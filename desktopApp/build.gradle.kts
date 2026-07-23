@@ -17,6 +17,16 @@ dependencies {
     implementation("org.jetbrains.compose.material:material-icons-extended:1.7.3")
     implementation(compose.components.resources)
 
+    // Material You dynamic color for Compose Desktop: generates a full M3 tonal scheme
+    // (secondary/tertiary/containers/surfaces) from the accent seed. androidx's
+    // dynamicColorScheme is Android-only, so MaterialKolor provides the KMP equivalent.
+    implementation("com.materialkolor:material-kolor:2.0.0")
+
+    // On-device ONNX inference for the in-app manga colorizer + translation vision
+    // stack (Manga-Bubble-YOLO detection, manga-ocr, PP-OCR), mirroring nyora-web's
+    // onnxruntime-web pipeline. CPU EP (bundles win/linux/mac native libs).
+    implementation("com.microsoft.onnxruntime:onnxruntime:1.20.0")
+
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
 

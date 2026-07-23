@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -42,10 +43,21 @@ fun TrackerScreen(state: AppState, onBack: () -> Unit) {
     // Recompute authorized services once when the screen opens.
     LaunchedEffect(Unit) { state.refreshTrackerAuth() }
 
+    // We surface only the trackers Nyora actively uses — AniList and MyAnimeList
+    // (MangaBaka is pending its library-write API). Kitsu (Cloudflare-challenged)
+    // and Shikimori stay dormant in the enum, just not surfaced.
+    val hiddenTrackers = setOf(ScrobblerService.KITSU, ScrobblerService.SHIKIMORI)
+    val visibleServices = ScrobblerService.entries.filter { it !in hiddenTrackers }
+
+    val scrollState = rememberScrollState()
+    NyoraScrollContainer(
+        adapter = rememberScrollbarAdapter(scrollState),
+        modifier = Modifier.fillMaxSize(),
+    ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scrollState)
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
@@ -79,17 +91,34 @@ fun TrackerScreen(state: AppState, onBack: () -> Unit) {
             Spacer(Modifier.weight(1f))
 
             SystemTag(
-                text = "${state.trackerAuthorized.size}/${ScrobblerService.entries.size} linked",
+                text = "${state.trackerAuthorized.size}/${visibleServices.size} linked",
                 color = if (state.trackerAuthorized.isNotEmpty()) NyoraTokens.mint else NyoraTokens.onSurfaceFaint,
             )
         }
 
+        // ── Scrobble-on-read toggle ───────────────────────────────────────────
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .glassCard(shape = RoundedCornerShape(16.dp), fill = NyoraTokens.surface1)
+                .padding(horizontal = 18.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Scrobble on chapter open", color = NyoraTokens.onSurfaceHigh,
+                    fontWeight = FontWeight.SemiBold)
+                Text("Push your progress to linked trackers as you read.",
+                    color = NyoraTokens.onSurfaceMuted, fontSize = 12.sp)
+            }
+            Switch(checked = state.scrobbleOnRead, onCheckedChange = { state.scrobbleOnRead = it })
+        }
+
         // ── A card per service ────────────────────────────────────────────────
-        ScrobblerService.entries.forEach { service ->
+        visibleServices.forEach { service ->
             ServiceCard(service = service, state = state, accent = accent)
         }
 
         Spacer(Modifier.height(48.dp))
+    }
     }
 }
 

@@ -1,6 +1,7 @@
 package com.nyora.windows.ai
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -40,19 +41,25 @@ class ByokRefiner(
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    // This legacy per-line refiner is not used by the current reader (which
+    // batches through MangaMt), but it remains a callable production path. Keep
+    // it subject to the same credential-routing rules rather than leaving a
+    // redirect or clear-text escape hatch behind.
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
+        .followRedirects(false)
+        .followSslRedirects(false)
         .build()
 
-    private val endpoint: String by lazy {
-        val b = baseUrl.trim().trimEnd('/')
-        // Allow the user to paste either ".../v1" or the full ".../v1/chat/completions".
-        if (b.endsWith("/chat/completions")) b else "$b/chat/completions"
+    private val endpoint: String? by lazy {
+        // Allow the user to paste either ".../v1" or the full endpoint, but
+        // never construct a request until the base passes endpoint policy.
+        AiEndpointPolicy.requestUrl(baseUrl, "/chat/completions")
     }
 
     override suspend fun isAvailable(): Boolean =
-        apiKey.isNotBlank() && baseUrl.isNotBlank() && model.isNotBlank()
+        apiKey.isNotBlank() && endpoint != null && model.isNotBlank()
 
     override suspend fun polish(texts: List<String>, targetLang: String): List<String> {
         if (texts.isEmpty() || !isAvailable()) return texts
@@ -83,14 +90,14 @@ class ByokRefiner(
             val body = json.encodeToString(JsonObject.serializer(), payload)
                 .toRequestBody("application/json".toMediaType())
             val request = Request.Builder()
-                .url(endpoint)
+                .url(endpoint ?: return@runCatching null)
                 .header("Authorization", "Bearer $apiKey")
                 .header("Content-Type", "application/json")
                 .post(body)
                 .build()
             http.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@use null
-                val text = response.body?.string() ?: return@use null
+                val text = AiResponseReader.readUtf8(response.body) ?: return@use null
                 val content = json.parseToJsonElement(text)
                     .jsonObject["choices"]?.jsonArray?.firstOrNull()
                     ?.jsonObject?.get("message")?.jsonObject?.get("content")
@@ -99,6 +106,9 @@ class ByokRefiner(
                 val cleaned = RefinePrompts.clean(content)
                 if (cleaned.isEmpty() || RefinePrompts.isRefusal(cleaned)) null else cleaned
             }
-        }.getOrNull()
+        }.getOrElse { error ->
+            if (error is CancellationException) throw error
+            null
+        }
     }
 }

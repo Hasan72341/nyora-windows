@@ -3,10 +3,32 @@ package com.nyora.windows.ui.theme
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.EaseOutCubic
 import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.LocalScrollbarStyle
+import androidx.compose.foundation.v2.ScrollbarAdapter
+import androidx.compose.foundation.VerticalScrollbar
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.foundation.border
@@ -472,12 +494,102 @@ fun Modifier.hoverLift(
 }
 
 /**
- * Animated diagonal shimmer sweep for loading placeholders. Renders a moving white
- * highlight band over a [NyoraTokens.glass2] base using an infinite transition.
+ * Animated diagonal shimmer sweep for loading placeholders. Renders a moving accent-neutral
+ * highlight band diagonally across a [NyoraTokens.surface1] base via an infinite transition,
+ * so skeletons read as "loading" instead of a dead grey block.
  */
 @Composable
-fun Modifier.shimmerPlaceholder(shape: Shape = RoundedCornerShape(16.dp)): Modifier =
-    this.clip(shape).background(NyoraTokens.surface1)
+fun Modifier.shimmerPlaceholder(shape: Shape = RoundedCornerShape(16.dp)): Modifier {
+    val transition = rememberInfiniteTransition(label = "shimmer")
+    val progress by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "shimmerSweep",
+    )
+    val base = NyoraTokens.surface1
+    val highlight = NyoraTokens.glass4
+    return this
+        .clip(shape)
+        .drawWithContent {
+            drawRect(base)
+            val band = size.width * 0.55f
+            val startX = -band + (size.width + band) * progress
+            drawRect(
+                brush = Brush.linearGradient(
+                    colors = listOf(Color.Transparent, highlight, Color.Transparent),
+                    start = Offset(startX, 0f),
+                    end = Offset(startX + band, size.height),
+                ),
+            )
+            drawContent()
+        }
+}
+
+/**
+ * Foreground color that reads on top of the live accent fill ([accentGradient]). White on
+ * darker accents, near-black on light accents (sakura / mint / a light Material-You seed),
+ * so accent-filled labels stay legible whatever hue the user picks. Replaces the hardcoded
+ * `Color.White` scattered across accent buttons and chips.
+ */
+@Composable
+fun onAccentColor(): Color {
+    val accent = LocalNyoraAccent.current.color
+    return if (accent.luminance() > 0.55f) Color(0xFF0E0E12) else Color.White
+}
+
+// ---------------------------------------------------------------------------------------
+// (c1) Desktop scrollbars
+//
+// Compose Desktop draws NO scrollbar by default, so every scrolling surface used to have
+// zero overflow affordance. [NyoraScrollbar] is a thin, auto-hiding, accent-tinted thumb;
+// [NyoraScrollContainer] wraps content + scrollbar in one Box. Call sites hoist a
+// rememberLazyListState / rememberLazyGridState / rememberScrollState and pass
+// rememberScrollbarAdapter(state).
+// ---------------------------------------------------------------------------------------
+
+/** A thin, accent-tinted, auto-hiding vertical scrollbar for the given [adapter]. */
+@Composable
+fun NyoraScrollbar(adapter: ScrollbarAdapter, modifier: Modifier = Modifier) {
+    val accent = LocalNyoraAccent.current.color
+    VerticalScrollbar(
+        adapter = adapter,
+        modifier = modifier,
+        style = LocalScrollbarStyle.current.copy(
+            thickness = 8.dp,
+            hoverDurationMillis = 250,
+            unhoverColor = accent.copy(alpha = 0.20f),
+            hoverColor = accent.copy(alpha = 0.55f),
+            shape = RoundedCornerShape(4.dp),
+        ),
+    )
+}
+
+/**
+ * Wraps a scrolling [content] and overlays a [NyoraScrollbar] pinned to the right edge.
+ * The scrollbar floats over the content (CenterEnd), so lay out content with a little end
+ * padding if it would otherwise collide with the thumb.
+ */
+@Composable
+fun NyoraScrollContainer(
+    adapter: ScrollbarAdapter,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    Box(modifier) {
+        content()
+        NyoraScrollbar(
+            adapter = adapter,
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight()
+                .padding(vertical = 4.dp, horizontal = 2.dp),
+        )
+    }
+}
 
 // ---------------------------------------------------------------------------------------
 // (d) AnimeAsyncImage
@@ -612,4 +724,175 @@ fun SystemTag(
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
     )
+}
+
+// ---------------------------------------------------------------------------------------
+// (h) Canonical interactive components — Material 3 Expressive vocabulary.
+//
+// One shared set of CTAs / chips / icon buttons / tags so every call site recolors with the
+// live accent and gets consistent Expressive shape + spring press/hover. Prefer these over
+// raw Button / OutlinedButton / inline Box+clickable.
+// ---------------------------------------------------------------------------------------
+
+/** Primary CTA: opaque accent-gradient fill, onAccent label, spring press-scale. */
+@Composable
+fun NyoraButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    enabled: Boolean = true,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.96f else 1f, NyoraSpring, label = "press")
+    val onAccent = onAccentColor()
+    Row(
+        modifier = modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (enabled) 1f else 0.45f }
+            .clip(RoundedCornerShape(14.dp))
+            .background(accentGradient())
+            .clickable(interactionSource = interaction, indication = null, enabled = enabled) { onClick() }
+            .padding(horizontal = 18.dp, vertical = 11.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) Icon(icon, null, tint = onAccent, modifier = Modifier.size(18.dp))
+        Text(text, color = onAccent, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
+
+/** Secondary CTA: tonal glass fill with a hairline; accent icon, high-contrast label. */
+@Composable
+fun NyoraTonalButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    enabled: Boolean = true,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.96f else 1f, NyoraSpring, label = "press")
+    val accent = LocalNyoraAccent.current.color
+    Row(
+        modifier = modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (enabled) 1f else 0.45f }
+            .glassOverlay(shape = RoundedCornerShape(14.dp), fill = NyoraTokens.surface2)
+            .clickable(interactionSource = interaction, indication = null, enabled = enabled) { onClick() }
+            .padding(horizontal = 18.dp, vertical = 11.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) Icon(icon, null, tint = accent, modifier = Modifier.size(18.dp))
+        Text(text, color = NyoraTokens.onSurfaceHigh, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
+
+/** Low-emphasis text button (accent label). */
+@Composable
+fun NyoraTextButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    val accent = LocalNyoraAccent.current.color
+    Text(
+        text = text,
+        color = if (enabled) accent else NyoraTokens.onSurfaceFaint,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(enabled = enabled) { onClick() }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    )
+}
+
+/** A selectable filter chip with ONE canonical selected treatment (accent wash + border). */
+@Composable
+fun NyoraFilterChip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val accent = LocalNyoraAccent.current.color
+    val sel by animateFloatAsState(if (selected) 1f else 0f, NyoraSpring, label = "chipSel")
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(50))
+            .background(accent.copy(alpha = 0.16f * sel))
+            .border(
+                width = 1.dp,
+                color = if (selected) accent.copy(alpha = 0.55f) else NyoraTokens.hairlineStrong,
+                shape = RoundedCornerShape(50),
+            )
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = text,
+            color = if (selected) NyoraTokens.onSurfaceHigh else NyoraTokens.onSurfaceMuted,
+            fontSize = 12.5.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            maxLines = 1,
+        )
+    }
+}
+
+/** A square glass icon button (optionally accent-tinted). */
+@Composable
+fun NyoraIconButton(
+    icon: ImageVector,
+    contentDescription: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    size: Dp = 40.dp,
+    accentTint: Boolean = false,
+) {
+    val accent = LocalNyoraAccent.current.color
+    Box(
+        modifier = modifier
+            .size(size)
+            .glassOverlay(shape = RoundedCornerShape(12.dp), fill = NyoraTokens.surface1)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription,
+            tint = if (accentTint) accent else NyoraTokens.onSurfaceBody,
+            modifier = Modifier.size(size * 0.45f),
+        )
+    }
+}
+
+/** Semantic tag tone. */
+enum class NyoraTone { Neutral, Accent, Success, Warn, Danger }
+
+/** A small status tag; [tone] maps to a consistent color, delegating to [SystemTag]. */
+@Composable
+fun NyoraTag(text: String, tone: NyoraTone = NyoraTone.Neutral, modifier: Modifier = Modifier) {
+    val accent = LocalNyoraAccent.current.color
+    val color = when (tone) {
+        NyoraTone.Neutral -> NyoraTokens.onSurfaceMuted
+        NyoraTone.Accent -> accent
+        NyoraTone.Success -> NyoraTokens.mint
+        NyoraTone.Warn -> Color(0xFFF2B84B)
+        NyoraTone.Danger -> Color(0xFFE5484D)
+    }
+    SystemTag(text = text, color = color, modifier = modifier)
+}
+
+/**
+ * One soft, edge-inset accent glow at the container level — restores the signature luminous
+ * "glow bleed" without the old square-seam artifact by drawing a single centered radial that
+ * fades to transparent WELL before the edges. Apply on a top-level Surface/Box, never on a
+ * clipped-corner element.
+ */
+@Composable
+fun Modifier.ambientGlow(intensity: Float = 0.06f): Modifier {
+    val accent = LocalNyoraAccent.current.color
+    return this.drawBehind {
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(accent.copy(alpha = intensity), Color.Transparent),
+                center = Offset(size.width * 0.5f, size.height * 0.32f),
+                radius = size.maxDimension * 0.7f,
+            ),
+        )
+    }
 }

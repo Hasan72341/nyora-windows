@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -24,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import com.nyora.windows.AppState
 import com.nyora.windows.ui.theme.AnimeAsyncImage
 import com.nyora.windows.ui.theme.LocalNyoraAccent
+import com.nyora.windows.ui.theme.NyoraScrollContainer
 import com.nyora.windows.ui.theme.NyoraTokens
 import com.nyora.windows.ui.theme.SectionHeader
 import com.nyora.windows.ui.theme.SystemTag
@@ -130,13 +133,20 @@ fun UpdatesScreen(state: AppState) {
                 }
             }
         } else {
-            LazyColumn(
+            val listState = rememberLazyListState()
+            NyoraScrollContainer(
+                adapter = rememberScrollbarAdapter(listState),
                 modifier = Modifier.fillMaxWidth().weight(1f),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                contentPadding = PaddingValues(bottom = 24.dp),
             ) {
-                items(state.updates, key = { it.mangaId }) { row ->
-                    UpdateBentoCard(row = row, state = state)
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp, end = 10.dp),
+                ) {
+                    items(state.updates, key = { it.mangaId }) { row ->
+                        UpdateBentoCard(row = row, state = state)
+                    }
                 }
             }
         }

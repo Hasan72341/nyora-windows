@@ -2,6 +2,7 @@ package com.nyora.windows.ui.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -20,6 +22,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.TrendingUp
@@ -39,6 +42,7 @@ import com.nyora.windows.AppState
 import com.nyora.windows.bridge.AniListFeedMedia
 import com.nyora.windows.ui.theme.AnimeAsyncImage
 import com.nyora.windows.ui.theme.LocalNyoraAccent
+import com.nyora.windows.ui.theme.NyoraScrollContainer
 import com.nyora.windows.ui.theme.NyoraTokens
 import com.nyora.windows.ui.theme.SectionHeader
 import com.nyora.windows.ui.theme.SystemTag
@@ -104,13 +108,20 @@ fun SuggestionsScreen(state: AppState) {
 
 @Composable
 private fun SuggestionsBento(state: AppState, items: List<AniListFeedMedia>) {
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 168.dp),
-        horizontalArrangement = Arrangement.spacedBy(24.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp),
+    val gridState = rememberLazyGridState()
+    NyoraScrollContainer(
+        adapter = rememberScrollbarAdapter(gridState),
         modifier = Modifier.fillMaxSize(),
     ) {
-        items.forEachIndexed { index, media ->
+        LazyVerticalGrid(
+            state = gridState,
+            columns = GridCells.Adaptive(minSize = 168.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+            contentPadding = PaddingValues(end = 10.dp),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            items.forEachIndexed { index, media ->
             // "Smart match": resolve the AniList title against the user's installed sources
             // by routing through the global-search overlay.
             val onClick: () -> Unit = {
@@ -141,6 +152,7 @@ private fun SuggestionsBento(state: AppState, items: List<AniListFeedMedia>) {
                         onClick = onClick,
                     )
                 }
+            }
             }
         }
     }

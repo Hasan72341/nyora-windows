@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://nyora.pages.dev/icon.png" width="120" alt="Nyora"/>
+<img src="https://nyora.xyz/icon.png" width="120" alt="Nyora"/>
 
 # Nyora — Windows
 
@@ -16,16 +16,19 @@ A fast, free, ad-free, open-source manga reader for Windows — built from scrat
 ![Jetpack Compose](https://img.shields.io/badge/Jetpack_Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)
 ![Windows](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)
 ![Gradle](https://img.shields.io/badge/Gradle-02303A?style=for-the-badge&logo=gradle&logoColor=white)
+![SQLDelight](https://img.shields.io/badge/SQLDelight-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
+![OkHttp](https://img.shields.io/badge/OkHttp-00A98F?style=for-the-badge&logo=square&logoColor=white)
 
 [![License: Apache 2.0](https://img.shields.io/github/license/Hasan72341/nyora-windows?color=blue)](LICENSE)
-[![Latest release](https://img.shields.io/github/v/release/Hasan72341/nyora-windows?label=download&color=0ae448)](https://github.com/Hasan72341/nyora-windows/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/Hasan72341/nyora-windows/total?color=9d95ff)](https://github.com/Hasan72341/nyora-windows/releases)
-[![Stars](https://img.shields.io/github/stars/Hasan72341/nyora-windows?style=social)](https://github.com/Hasan72341/nyora-windows/stargazers)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-0ae448?style=flat)](https://github.com/Hasan72341/nyora-windows/pulls)
+[![Latest release](https://img.shields.io/github/v/release/Hasan72341/nyora-windows?label=download&color=0ae448)](https://github.com/Nyora-Manga/nyora-windows/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/Hasan72341/nyora-windows/total?color=9d95ff)](https://github.com/Nyora-Manga/nyora-windows/releases)
+[![Stars](https://img.shields.io/github/stars/Hasan72341/nyora-windows?style=social)](https://github.com/Nyora-Manga/nyora-windows/stargazers)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-0ae448?style=flat)](https://github.com/Nyora-Manga/nyora-windows/pulls)
 
-[![Download EXE](https://img.shields.io/badge/Download-.exe-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Hasan72341/nyora-windows/releases/latest)
-[![Website](https://img.shields.io/badge/Website-nyora.pages.dev-FF4655?style=for-the-badge&logo=githubpages&logoColor=white)](https://nyora.pages.dev)
-[![Open Web App](https://img.shields.io/badge/Open-Web_App-5A0FC8?style=for-the-badge&logo=pwa&logoColor=white)](https://nyoraweb.pages.dev)
+[![Download EXE](https://img.shields.io/badge/Download-.exe-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Nyora-Manga/nyora-windows/releases/latest)
+[![Website](https://img.shields.io/badge/Website-nyora.xyz-FF4655?style=for-the-badge&logo=githubpages&logoColor=white)](https://nyora.xyz)
+[![Open Web App](https://img.shields.io/badge/Open-Web_App-5A0FC8?style=for-the-badge&logo=pwa&logoColor=white)](https://web.nyora.xyz)
+[![Catalogue](https://img.shields.io/badge/Source_Catalogue-JSON-FF6C37?style=for-the-badge&logo=json&logoColor=white)](https://raw.githubusercontent.com/Nyora-Manga/nyora-data-driven/main/catalogue.json)
 
 **Download the `.exe`, run it, start reading — Java comes bundled, nothing else to install.**
 
@@ -132,7 +135,7 @@ Save chapters straight to your **local disk** and read them anywhere — on a fl
 
 ### Sources & Discovery
 
-Browse, search and filter across **hundreds of online sources** covering **manga, manhwa and manhua**. Discover new series, jump on popular picks, and dig through deep back-catalogues — all from one app, with consistent browsing and a single unified library regardless of which source a series comes from. The catalogue spans a wide range of communities and languages, and source definitions are delivered as over-the-air bundles by the shared engine, so new and fixed sources can arrive without waiting for a full app release.
+Browse, search and filter across **hundreds of online sources** covering **manga, manhwa and manhua**. Discover new series, jump on popular picks, and dig through deep back-catalogues — all from one app, with consistent browsing and a single unified library regardless of which source a series comes from. The catalogue spans a wide range of communities and languages, powered by the [`nyora-data-driven`](https://github.com/Nyora-Manga/nyora-data-driven) engine via the shared `nyora-shared` helper, with over-the-air bundle updates so new and fixed sources can arrive without waiting for a full app release.
 
 ### Cloud Sync
 
@@ -148,7 +151,7 @@ Nyora includes **tracker integration** so your progress can stay aligned with th
 
 ### Privacy & Open Source
 
-Nyora is **100% free, ad-free, with no tracking, and no account required to read**. You only sign in if you want cloud sync. The app is licensed under **Apache-2.0**, built from scratch (source-compatible with Tachiyomi/Kotatsu-style sources but not a fork), fully auditable, and open to community pull requests. An **incognito mode** lets you read without writing to your history when you would rather not leave a trail.
+Nyora is **100% free, ad-free, with no tracking, and no account required to read**. You only sign in if you want cloud sync. The app is licensed under **Apache-2.0**, built from scratch, fully auditable, and open to community pull requests. An **incognito mode** lets you read without writing to your history when you would rather not leave a trail.
 
 ### Themes & Personalisation
 
@@ -186,14 +189,14 @@ What ships in the Windows build today.
 
 Two steps: pick your architecture, download, run. There is **nothing else to install** — the Java runtime is bundled inside the installer.
 
-Download the installer for your architecture from the **[Releases page](https://github.com/Hasan72341/nyora-windows/releases/latest)**:
+Download the installer for your architecture from the **[Releases page](https://github.com/Nyora-Manga/nyora-windows/releases/latest)**:
 
 | Installer | For |
 |---|---|
 | `Nyora-Windows-x64.exe` | Intel / AMD 64-bit PCs |
 | `Nyora-Windows-arm64.exe` | ARM64 devices (Snapdragon, etc.) |
 
-[![Download EXE](https://img.shields.io/badge/Download-.exe-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Hasan72341/nyora-windows/releases/latest)
+[![Download EXE](https://img.shields.io/badge/Download-.exe-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Nyora-Manga/nyora-windows/releases/latest)
 
 > **Not sure which one?** Open **Settings → System → About → System type** in Windows. Most desktops and laptops are **x64**; recent ARM-based Windows machines (Snapdragon, etc.) use **arm64**.
 
@@ -212,7 +215,7 @@ If you trust the download (and you can verify it against this repository), choos
 
 - **32-bit x86 is not supported.** Pick the `x64` build for Intel/AMD machines and the `arm64` build for ARM64 devices.
 - **Installing the wrong-architecture build is the most common issue** — if the app fails to launch, re-download the matching installer.
-- Always download from the official **[Releases page](https://github.com/Hasan72341/nyora-windows/releases/latest)** linked here — never from a mirror you don't trust.
+- Always download from the official **[Releases page](https://github.com/Nyora-Manga/nyora-windows/releases/latest)** linked here — never from a mirror you don't trust.
 
 ### Microsoft Store
 
@@ -242,7 +245,7 @@ Full, step-by-step submission instructions live in **[docs/WINDOWS-STORE.md](doc
 ### Commands
 
 ```powershell
-git clone --recurse-submodules https://github.com/Hasan72341/nyora-windows.git
+git clone --recurse-submodules https://github.com/Nyora-Manga/nyora-windows.git
 cd nyora-windows
 .\gradlew.bat :desktopApp:run                          # run
 .\gradlew.bat :desktopApp:packageReleaseExe            # build the .exe installer
@@ -263,11 +266,15 @@ cd nyora-windows
 ![Jetpack Compose](https://img.shields.io/badge/Jetpack_Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)
 ![Windows](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)
 ![Gradle](https://img.shields.io/badge/Gradle-02303A?style=for-the-badge&logo=gradle&logoColor=white)
+![SQLDelight](https://img.shields.io/badge/SQLDelight-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
+![OkHttp](https://img.shields.io/badge/OkHttp-00A98F?style=for-the-badge&logo=square&logoColor=white)
 
-- **Kotlin** — the single language behind the entire app, from the UI down to the source-parsing engine.
+- **Kotlin 2.1** — the single language behind the entire app, from the UI down to the source-parsing engine.
 - **Compose Multiplatform for Desktop** — declarative UI rendering the native Windows app, sharing patterns with Nyora's other Compose-based platforms.
 - **Windows** — native integration for the title bar, Mica backdrop, window state and built-in OCR.
 - **Gradle** — the build system that runs the app and packages the self-contained `.exe` installer via jpackage.
+- **SQLDelight** — local SQLite database in the shared engine for the manga library.
+- **OkHttp 5** — HTTP client for source fetching in the shared engine.
 
 ## Architecture
 
@@ -279,12 +286,13 @@ The whole-page translation pipeline leans on the operating system: **Windows OCR
 
 | Platform | Repo | Get it |
 |---|---|---|
-| Windows | **nyora-windows** *(you are here)* | [.exe (x64/ARM64)](https://github.com/Hasan72341/nyora-windows/releases/latest) |
-| Android | [nyora-android](https://github.com/Hasan72341/nyora-android) | [APK](https://github.com/Hasan72341/nyora-android/releases/latest) |
-| macOS | [nyora-mac](https://github.com/Hasan72341/nyora-mac) | [.dmg / `brew`](https://github.com/Hasan72341/nyora-mac/releases/latest) |
-| Linux | [nyora-linux](https://github.com/Hasan72341/nyora-linux) | [deb · rpm · curl](https://github.com/Hasan72341/nyora-linux/releases/latest) |
-| iOS / iPadOS | [nyora-ios](https://github.com/Hasan72341/nyora-ios) | [sideload IPA](https://github.com/Hasan72341/nyora-ios/releases/latest) |
-| Web | [nyora-web](https://github.com/Hasan72341/nyora-web) | [nyoraweb.pages.dev](https://nyoraweb.pages.dev) |
+| Windows | **nyora-windows** *(you are here)* | [.exe (x64/ARM64)](https://github.com/Nyora-Manga/nyora-windows/releases/latest) |
+| Android | [nyora-android](https://github.com/Nyora-Manga/nyora-android) | [APK](https://github.com/Nyora-Manga/nyora-android/releases/latest) |
+| macOS | [nyora-mac](https://github.com/Nyora-Manga/nyora-mac) | [.dmg / `brew`](https://github.com/Nyora-Manga/nyora-mac/releases/latest) |
+| Linux | [nyora-linux](https://github.com/Nyora-Manga/nyora-linux) | [deb · rpm · curl](https://github.com/Nyora-Manga/nyora-linux/releases/latest) |
+| iOS / iPadOS | [nyora-ios](https://github.com/Nyora-Manga/nyora-ios) | [sideload IPA](https://github.com/Nyora-Manga/nyora-ios/releases/latest) |
+| Web | [nyora-web](https://github.com/Nyora-Manga/nyora-web) | [web.nyora.xyz](https://web.nyora.xyz) |
+| Data-driven engine | [`nyora-data-driven`](https://github.com/Nyora-Manga/nyora-data-driven) | 35 generic source templates — powers the source catalogue |
 
 All platforms share one library through free Nyora Cloud sync — translation is handled per platform using whatever runs best there (Windows OCR here, Apple Vision / Core ML on macOS and iOS).
 
@@ -305,7 +313,7 @@ Yes — completely free, ad-free, and with no tracking. There is nothing to buy,
 No. You can browse, read, download and translate without signing in to anything. You only create a free Nyora account (email + password) if you want cloud sync across your devices — and even then, sync is fully opt-in.
 
 **Is it safe? Why does Windows show a SmartScreen warning?**
-The warning appears because Nyora is independent, community-signed open-source software that SmartScreen hasn't yet seen downloaded by large numbers of people — it is a reputation prompt, not a malware verdict. Because the project is open-source, you can read every line on GitHub and even build the same installer yourself. Always download from the official [Releases page](https://github.com/Hasan72341/nyora-windows/releases/latest); to proceed, choose **More info → Run anyway**.
+The warning appears because Nyora is independent, community-signed open-source software that SmartScreen hasn't yet seen downloaded by large numbers of people — it is a reputation prompt, not a malware verdict. Because the project is open-source, you can read every line on GitHub and even build the same installer yourself. Always download from the official [Releases page](https://github.com/Nyora-Manga/nyora-windows/releases/latest); to proceed, choose **More info → Run anyway**.
 
 **Is Nyora on the Microsoft Store?**
 Not yet. The repository includes a full MSIX packaging system (`scripts/build-msix.ps1`, `msix/AppxManifest.xml`) and submission steps in [docs/WINDOWS-STORE.md](docs/WINDOWS-STORE.md), but publishing requires a Microsoft Partner Center account, and a manga-source reader may face Store content/IP review. See [Microsoft Store](#microsoft-store) for the honest status.
@@ -332,10 +340,10 @@ Nyora uses the **built-in Windows OCR** to detect text on a page, then translate
 Windows 10 and Windows 11 on 64-bit x64 and ARM64. There is no 32-bit build. The Mica backdrop and dark title bar polish apply on Windows 11. The installer bundles its own Java runtime, so no separate Java install is needed.
 
 **Can I contribute?**
-Yes — Nyora is fully open-source and PRs are welcome. The desktop app / UI layer lives in this repository, and the shared Kotlin engine **`nyora-shared`** (source parsers, the loopback REST server, the SQLDelight store, Nyora Cloud sync and the downloads manager) is open-source and public at [`nyora-shared`](https://github.com/Hasan72341/nyora-shared) (Apache-2.0). UI, packaging and native-polish work belongs here; engine and source-parser work belongs in `nyora-shared`. See [Contributing](#contributing) for how to get started.
+Yes — Nyora is fully open-source and PRs are welcome. The desktop app / UI layer lives in this repository, and the shared Kotlin engine **`nyora-shared`** (source parsers, the loopback REST server, the SQLDelight store, Nyora Cloud sync and the downloads manager) is open-source and public at [`nyora-shared`](https://github.com/Nyora-Manga/nyora-shared) (Apache-2.0). UI, packaging and native-polish work belongs here; engine and source-parser work belongs in `nyora-shared`. See [Contributing](#contributing) for how to get started.
 
 **How do I update?**
-Download the latest installer from the [Releases page](https://github.com/Hasan72341/nyora-windows/releases/latest) and run it over your existing install — your library and settings stay in place. Star or watch the repo to hear about new releases.
+Download the latest installer from the [Releases page](https://github.com/Nyora-Manga/nyora-windows/releases/latest) and run it over your existing install — your library and settings stay in place. Star or watch the repo to hear about new releases.
 
 ## Contributing
 
@@ -345,12 +353,12 @@ Nyora is built entirely in the open, and it gets better with every contribution.
 
 You do **not** need to be a coder to make a real difference:
 
-- **Report bugs.** Hit a crash, a misbehaving source, or a layout glitch? Open an [issue](https://github.com/Hasan72341/nyora-windows/issues) with your Windows version, architecture (x64 / ARM64), and steps to reproduce. Clear bug reports are gold.
+- **Report bugs.** Hit a crash, a misbehaving source, or a layout glitch? Open an [issue](https://github.com/Nyora-Manga/nyora-windows/issues) with your Windows version, architecture (x64 / ARM64), and steps to reproduce. Clear bug reports are gold.
 - **Test releases.** Try a new build on your machine and tell us what works and what doesn't — especially on ARM64 and across different Windows 11 setups.
 - **Improve the docs.** Fix a typo, clarify a confusing step, or expand the install/troubleshooting notes in this README or in [`docs/WINDOWS.md`](docs/WINDOWS.md).
 - **Help with the UI and translations.** Suggest wording, polish layouts, or improve how strings read in the Compose UI under `desktopApp/src/main/kotlin`.
-- **Request or help port sources.** The shared engine drives source coverage; if a source is missing or broken, open an issue — or contribute the parser directly. Source parsers live in the open-source [`nyora-shared`](https://github.com/Hasan72341/nyora-shared) engine, where PRs are welcome (large source-coverage work is best directed there and at its issue tracker).
-- **Star and share.** Honestly, this matters. A [star](https://github.com/Hasan72341/nyora-windows/stargazers) and a mention to a friend help more readers find a free, private, open-source reader.
+- **Request or help port sources.** The shared engine drives source coverage; if a source is missing or broken, open an issue — or contribute the parser directly. Source parsers live in the open-source [`nyora-shared`](https://github.com/Nyora-Manga/nyora-shared) engine, where PRs are welcome (large source-coverage work is best directed there and at its issue tracker).
+- **Star and share.** Honestly, this matters. A [star](https://github.com/Nyora-Manga/nyora-windows/stargazers) and a mention to a friend help more readers find a free, private, open-source reader.
 
 ### Development setup
 
@@ -358,7 +366,7 @@ This is the quick path to running the **desktop app / UI layer** from source —
 
 ```powershell
 # 1. Clone (the public nyora-shared engine is fetched as a submodule)
-git clone --recurse-submodules https://github.com/Hasan72341/nyora-windows.git
+git clone --recurse-submodules https://github.com/Nyora-Manga/nyora-windows.git
 cd nyora-windows
 
 # 2. Make sure JDK 17+ is installed and on your PATH
@@ -367,7 +375,7 @@ cd nyora-windows
 .\gradlew.bat :desktopApp:run
 ```
 
-**A note on the build:** the desktop UI in this repo depends on the open-source [`nyora-shared`](https://github.com/Hasan72341/nyora-shared) submodule (the shared Kotlin source-parsing engine, Apache-2.0). Because it's public, a full from-scratch build that fetches `nyora-shared` works for everyone — just clone with `--recurse-submodules` (or run `git submodule update --init --recursive`), no special access required. You're free to read, modify and contribute to both the app / UI layer here and the shared engine itself. If you want to contribute UI, packaging or native-polish changes and aren't sure how to validate them, open an issue describing your change and we'll help you find the best path forward.
+**A note on the build:** the desktop UI in this repo depends on the open-source [`nyora-shared`](https://github.com/Nyora-Manga/nyora-shared) submodule (the shared Kotlin source-parsing engine, Apache-2.0). Because it's public, a full from-scratch build that fetches `nyora-shared` works for everyone — just clone with `--recurse-submodules` (or run `git submodule update --init --recursive`), no special access required. You're free to read, modify and contribute to both the app / UI layer here and the shared engine itself. If you want to contribute UI, packaging or native-polish changes and aren't sure how to validate them, open an issue describing your change and we'll help you find the best path forward.
 
 Where to look first: start in `desktopApp/src/main/kotlin/com/nyora/hasan72341/windows/` — `ui/App.kt` and `ui/Sidebar.kt` wire the app together, and the individual screens live in `ui/screen/`.
 
@@ -385,7 +393,7 @@ A quick map so you can navigate the app layer:
 | `desktopApp/src/main/kotlin/.../windows/translate/` | Whole-page translation — `WindowsOcr.kt`, `GoogleTranslate.kt`, `MangaTranslator.kt`. |
 | `desktopApp/src/main/kotlin/.../windows/bridge/` | The loopback REST client (`NyoraHttpClient.kt`) and DTOs that talk to the shared engine. |
 | `msix/`, `scripts/build-msix.ps1` | MSIX packaging for the Microsoft Store — `AppxManifest.xml`, visual assets, and the build/sign scripts. |
-| `nyora-shared/` | Open-source shared Kotlin engine (Git submodule, Apache-2.0). Source parsers, the loopback REST server, the SQLDelight store, Nyora Cloud sync and the downloads manager live here — PRs welcome at [`nyora-shared`](https://github.com/Hasan72341/nyora-shared). |
+| `nyora-shared/` | Open-source shared Kotlin engine (Git submodule, Apache-2.0). Source parsers, the loopback REST server, the SQLDelight store, Nyora Cloud sync and the downloads manager live here — PRs welcome at [`nyora-shared`](https://github.com/Nyora-Manga/nyora-shared). |
 | `docs/` | Screenshots, `WINDOWS.md` and `WINDOWS-STORE.md`. |
 
 ### Good first contributions
@@ -396,9 +404,9 @@ Great places to make your first PR, grounded in this repo's actual structure:
 - **Sharpen the native feel.** Small, self-contained improvements in `ui/theme/WindowsNative.kt` (Mica, dark title bar, window-state memory) are exactly the kind of native polish this build welcomes.
 - **Refine reader ergonomics.** Tweak something in `ui/reader/ColorFilter.kt` or the paged/Webtoon flow in `ui/screen/ReaderScreen.kt`.
 - **Improve docs.** Clarify install steps, the SmartScreen explanation, or the architecture selection guidance in this README or `docs/WINDOWS.md`.
-- **Triage and reproduce issues.** Confirming and tidying existing [issues](https://github.com/Hasan72341/nyora-windows/issues) is a genuinely helpful first step with no build required.
+- **Triage and reproduce issues.** Confirming and tidying existing [issues](https://github.com/Nyora-Manga/nyora-windows/issues) is a genuinely helpful first step with no build required.
 
-> Working on UI, packaging (WiX / jpackage / MSIX) or native Windows polish is the sweet spot for contributions to this repo. The source-parsing engine lives in the open-source [`nyora-shared`](https://github.com/Hasan72341/nyora-shared) submodule — engine and source-parser PRs are welcome there. Large source-coverage work is best directed at the `nyora-shared` repo (and its issue tracker) rather than as PRs against this consumer app.
+> Working on UI, packaging (WiX / jpackage / MSIX) or native Windows polish is the sweet spot for contributions to this repo. The source-parsing engine lives in the open-source [`nyora-shared`](https://github.com/Nyora-Manga/nyora-shared) submodule — engine and source-parser PRs are welcome there. Large source-coverage work is best directed at the `nyora-shared` repo (and its issue tracker) rather than as PRs against this consumer app.
 
 ### Pull request & issue etiquette
 
@@ -407,18 +415,18 @@ A few simple things keep reviews fast and friendly:
 - **Keep PRs focused.** One change per PR is much easier to review and merge than a sprawling one.
 - **Describe the change.** Say what you changed and why; screenshots help a lot for UI tweaks.
 - **Be kind.** Assume good faith, write welcoming review comments, and remember a real person is on the other end. Everyone here is a volunteer.
-- **Link the context.** Reference the related [issue](https://github.com/Hasan72341/nyora-windows/issues) if there is one, and open a [pull request](https://github.com/Hasan72341/nyora-windows/pulls) when you're ready.
+- **Link the context.** Reference the related [issue](https://github.com/Nyora-Manga/nyora-windows/issues) if there is one, and open a [pull request](https://github.com/Nyora-Manga/nyora-windows/pulls) when you're ready.
 
-If you've read this far: thank you. Nyora is a community project, and it only exists because people like you file a bug, fix a line, or tell a friend. If the app makes your reading better, please [star the repo](https://github.com/Hasan72341/nyora-windows/stargazers) and share it — and if you're thinking about your first contribution, consider this your invitation to dive in. We're glad you're here.
+If you've read this far: thank you. Nyora is a community project, and it only exists because people like you file a bug, fix a line, or tell a friend. If the app makes your reading better, please [star the repo](https://github.com/Nyora-Manga/nyora-windows/stargazers) and share it — and if you're thinking about your first contribution, consider this your invitation to dive in. We're glad you're here.
 
 ## Acknowledgements
 
-Nyora is original code, built from scratch and source-compatible with Tachiyomi/Kotatsu-style sources without being a fork. Thanks to the broader open-source manga-reader community whose source formats Nyora interoperates with, to the Kotlin, Compose Multiplatform and WiX projects that make the desktop build possible, and to everyone who files issues, contributes PRs and helps the project grow.
+Nyora is original code, built from scratch. Thanks to the [`nyora-data-driven`](https://github.com/Nyora-Manga/nyora-data-driven) project, to the Kotlin, Compose Multiplatform and WiX projects that make the desktop build possible, and to everyone who files issues, contributes PRs and helps the project grow.
 
 Developed and maintained by **Md Hasan Raza** — [GitHub](https://github.com/Hasan72341) · [Instagram](https://instagram.com/md_hasan_raza____) · [LinkedIn](https://www.linkedin.com/in/md-hasan-raza) · hasanraza96@outlook.com
 
 ## License
 
-Licensed under the **Apache License 2.0** (see [`LICENSE`](LICENSE)). Original code, built from scratch — source-compatible with Tachiyomi/Kotatsu-style sources but not a fork.
+Licensed under the **Apache License 2.0** (see [`LICENSE`](LICENSE)). Original code, built from scratch.
 
 > Nyora is not affiliated with any of the manga sources it can access.
